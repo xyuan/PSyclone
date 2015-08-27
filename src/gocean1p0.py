@@ -140,6 +140,10 @@ class GOInvoke(Invoke):
         if False:
             self._schedule = GOSchedule(None) # for pyreverse
         Invoke.__init__(self, alg_invocation, idx, GOSchedule)
+        # Whether we generate the middle layer using raw arrays (alternative
+        # is to use the derived types and only de-reference the arrays
+        # themselves in the calls to the kernels)
+        self.use_raw_arrays = True
 
     @property
     def unique_args_arrays(self):
@@ -182,18 +186,25 @@ class GOInvoke(Invoke):
             by the associated invoke call in the algorithm layer). This
             consists of the PSy invocation subroutine and the declaration of
             its arguments.'''
-        from f2pygen import SubroutineGen, DeclGen, TypeDeclGen
+        from f2pygen import SubroutineGen, DeclGen, TypeDeclGen, CallGen
         # create the subroutine
         invoke_sub = SubroutineGen(parent, name=self.name,
                                    args=self.psy_unique_var_names)
         parent.add(invoke_sub)
+
+        if self.use_raw_arrays:
+            invoke_sub_arrays = SubroutineGen(parent,
+                                              name=self.name+"_arrays",
+                                              args=self.psy_unique_var_names)
+            parent.add(invoke_sub_arrays)
+
         self.schedule.gen_code(invoke_sub)
         # add the subroutine argument declarations for arrays
         if len(self.unique_args_arrays) > 0:
-            my_decl_arrays = TypeDeclGen(invoke_sub, datatype="r2d_field",
+            my_decl_flds = TypeDeclGen(invoke_sub, datatype="r2d_field",
                                          intent="inout",
                                          entity_decls=self.unique_args_arrays)
-            invoke_sub.add(my_decl_arrays)
+            invoke_sub.add(my_decl_flds)
         # add the subroutine argument declarations for real scalars
         if len(self.unique_args_rscalars) > 0:
             my_decl_rscalars = DeclGen(invoke_sub, datatype="REAL",
@@ -206,6 +217,31 @@ class GOInvoke(Invoke):
                                        intent="inout",
                                        entity_decls=self.unique_args_iscalars)
             invoke_sub.add(my_decl_iscalars)
+
+        if self.use_raw_arrays:
+            # Constant integer scalars that give the array extents and the
+            # upper limits to use in loops
+            invoke_sub.add(CallGen(invoke_sub, self.name+"_arrays",
+                                   self.psy_unique_var_names))
+            my_decl_iscalars = DeclGen(invoke_sub_arrays,
+                                       datatype="INTEGER",
+                                       intent="in",
+                                       entity_decls=["nx", "ny", "xstop", "ystop"])
+            invoke_sub_arrays.add(my_decl_iscalars)
+            if len(self.unique_args_arrays) > 0:
+                my_decl_arrays = DeclGen(invoke_sub_arrays,
+                                         datatype="REAL",
+                                         intent="inout", kind="wp",
+                                         dimension=":,:",
+                                         entity_decls=self.unique_args_arrays)
+                invoke_sub_arrays.add(my_decl_arrays)
+            if len(self.unique_args_iscalars) > 0:
+                my_decl_iscalars = DeclGen(invoke_sub_arrays,
+                                           datatype="INTEGER",
+                                           intent="inout",
+                                           entity_decls=self.unique_args_iscalars)
+                invoke_sub_arrays.add(my_decl_iscalars)
+
 
 class GOSchedule(Schedule):
 
