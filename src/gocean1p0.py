@@ -69,6 +69,7 @@ class GOPSy(PSy):
         Also overrides the PSy gen method so that we generate GOcean-
         specific PSy module code. '''
     def __init__(self, invoke_info):
+        self.use_raw_arrays = True
         PSy.__init__(self, invoke_info)
         self._invokes = GOInvokes(invoke_info.calls)
     @property
@@ -97,7 +98,10 @@ class GOInvokes(Invokes):
     def __init__(self, alg_calls):
         if False:
             self._0_to_n = GOInvoke(None, None) # for pyreverse
-        Invokes.__init__(self, alg_calls, GOInvoke)
+        # ARPDBG pass GOInvoke to generate middle layer that doesn't
+        # have additional 'unpacking' subroutine (i.e. PSY-layer routine
+        # uses field objects [Fortran derived types]).
+        Invokes.__init__(self, alg_calls, GOInvokeArrays)
 
         index_offsets = []
         # Loop over all of the kernels in all of the invoke() calls
@@ -128,6 +132,7 @@ class GOInvokes(Invokes):
                     # those seen so far
                     index_offsets.append(kern_call.index_offset)
 
+
 class GOInvoke(Invoke):
     ''' The GOcean specific invoke class. This passes the GOcean specific
         schedule class to the base class so it creates the one we require.
@@ -140,10 +145,6 @@ class GOInvoke(Invoke):
         if False:
             self._schedule = GOSchedule(None) # for pyreverse
         Invoke.__init__(self, alg_invocation, idx, GOSchedule)
-        # Whether we generate the middle layer using raw arrays (alternative
-        # is to use the derived types and only de-reference the arrays
-        # themselves in the calls to the kernels)
-        self.use_raw_arrays = True
 
     @property
     def unique_args_arrays(self):
@@ -168,7 +169,6 @@ class GOInvoke(Invoke):
                     result.append(arg.name)
         return result
 
-
     @property
     def unique_args_iscalars(self):
         ''' find unique arguments that are scalars of type integer (defined
@@ -192,12 +192,6 @@ class GOInvoke(Invoke):
                                    args=self.psy_unique_var_names)
         parent.add(invoke_sub)
 
-        if self.use_raw_arrays:
-            invoke_sub_arrays = SubroutineGen(parent,
-                                              name=self.name+"_arrays",
-                                              args=self.psy_unique_var_names)
-            parent.add(invoke_sub_arrays)
-
         self.schedule.gen_code(invoke_sub)
         # add the subroutine argument declarations for arrays
         if len(self.unique_args_arrays) > 0:
@@ -218,30 +212,141 @@ class GOInvoke(Invoke):
                                        entity_decls=self.unique_args_iscalars)
             invoke_sub.add(my_decl_iscalars)
 
-        if self.use_raw_arrays:
-            # Constant integer scalars that give the array extents and the
-            # upper limits to use in loops
-            invoke_sub.add(CallGen(invoke_sub, self.name+"_arrays",
-                                   self.psy_unique_var_names))
+
+class GOInvokeArrays(GOInvoke):
+    ''' Overrides GOInvoke in order to generate a version of the PSy layer
+        that uses raw arrays rather than Fortran derived types. '''
+
+    @property
+    def unique_grid_props(self):
+        ''' Find unique arguments that are properties of the grid. '''
+        result = []
+        for call in self._schedule.calls():
+            for arg in call.arguments.args:
+                if arg.type == 'grid_property' and not arg.name in result:
+                    result.append(arg.name)
+        return result
+
+    def _find_grid_accessor(self):
+        '''Determine the best kernel argument from which to get properties of
+           the grid. For this, an argument must be a field (i.e. not
+           a scalar) and must be supplied by the algorithm layer
+           (i.e. not a grid property). If possible it should also be
+           a field that is read-only as otherwise compilers can get
+           confused about data dependencies and refuse to SIMD
+           vectorise. '''
+
+        for access in ["read", "readwrite", "write"]:
+            for call in self._schedule.calls():
+                for arg in call.arguments.args:
+                    if arg.type == "field" and arg.access.lower() == access:
+                        return arg
+        # We failed to find any kernel argument which could be used
+        # to access the grid properties. This will only be a problem
+        # if the kernel requires a grid-property argument.
+        return None
+
+    def gen_code(self, parent):
+        ''' Generates GOcean specific invocation code (the subroutine called
+            by the associated invoke call in the algorithm layer). This
+            consists of the PSy invocation subroutine and the declaration of
+            its arguments.'''
+        from f2pygen import SubroutineGen, DeclGen, TypeDeclGen, CallGen
+
+        # The arguments/variables for the extents of the arrays and
+        # the upper bounds of associated loops
+        array_bound_args = ["nx", "ny", "xstop", "ystop"]
+
+        # create the subroutine that will convert from Fortran derived
+        # types to raw arrays
+        invoke_sub = SubroutineGen(parent, name=self.name,
+                                   args=self.psy_unique_var_names)
+        parent.add(invoke_sub)
+
+        # Create the subroutine that contains the middle, PSy layer. This
+        # routine contains no references to Fortran derived types.
+        # Therefore, if any of the kernels that are a part of this Invoke
+        # require a grid property, that property must be passed down
+        # here.
+        invoke_sub_arrays = SubroutineGen(parent,
+                                          name=self.name+"_arrays",
+                                          args=array_bound_args+\
+                                          self.psy_unique_var_names+\
+                                          self.unique_grid_props)
+        parent.add(invoke_sub_arrays)
+
+        self.schedule.gen_code(invoke_sub_arrays)
+
+        # add the subroutine argument declarations for arrays
+        if len(self.unique_args_arrays) > 0:
+            my_decl_flds = TypeDeclGen(invoke_sub, datatype="r2d_field",
+                                         intent="inout",
+                                         entity_decls=self.unique_args_arrays)
+            invoke_sub.add(my_decl_flds)
+        # add the subroutine argument declarations for real scalars
+        if len(self.unique_args_rscalars) > 0:
+            my_decl_rscalars = DeclGen(invoke_sub, datatype="REAL",
+                                       intent="inout", kind="wp",
+                                       entity_decls=self.unique_args_rscalars)
+            invoke_sub.add(my_decl_rscalars)
+        # add the subroutine argument declarations for integer scalars
+        if len(self.unique_args_iscalars) > 0:
+            my_decl_iscalars = DeclGen(invoke_sub, datatype="INTEGER",
+                                       intent="inout",
+                                       entity_decls=self.unique_args_iscalars)
+            invoke_sub.add(my_decl_iscalars)
+
+        # Constant integer scalars that give the array extents and the
+        # upper limits to use in loops
+        my_decl_iscalars = DeclGen(invoke_sub, datatype="INTEGER",
+                                   entity_decls=array_bound_args)
+        invoke_sub.add(my_decl_iscalars)
+
+        my_decl_iscalars = DeclGen(invoke_sub_arrays,
+                                   datatype="INTEGER",
+                                   intent="in",
+                                   entity_decls=array_bound_args)
+        invoke_sub_arrays.add(my_decl_iscalars)
+
+        # Call the subroutine that uses only raw Fortran arrays
+
+        # First, work out which field object is best for looking-up
+        # any properties of the grid
+        grid_arg = self._find_grid_accessor()
+        # Now generate the list of arguments
+        arg_list = array_bound_args[:]
+        for arg in self.psy_unique_var_names:
+            arg_list.append(arg+"%data")
+        for arg in self.unique_grid_props:
+            if grid_arg:
+                arg_list.append(grid_arg.name+"%grid%"+arg)
+            else:
+                raise GenerationError("We require a grid property but no "
+                                      "field object has been found from "
+                                      "which to obtain it.")
+        invoke_sub.add(CallGen(invoke_sub, self.name+"_arrays",
+                               arg_list))
+
+        if len(self.unique_args_arrays) > 0:
+            my_decl_arrays = DeclGen(invoke_sub_arrays,
+                                     datatype="REAL",
+                                     intent="inout", kind="wp",
+                                     dimension="nx,ny",
+                                     entity_decls=self.unique_args_arrays)
+            invoke_sub_arrays.add(my_decl_arrays)
+        if len(self.unique_args_iscalars) > 0:
             my_decl_iscalars = DeclGen(invoke_sub_arrays,
                                        datatype="INTEGER",
-                                       intent="in",
-                                       entity_decls=["nx", "ny", "xstop", "ystop"])
+                                       intent="inout",
+                                       entity_decls=self.unique_args_iscalars)
             invoke_sub_arrays.add(my_decl_iscalars)
-            if len(self.unique_args_arrays) > 0:
-                my_decl_arrays = DeclGen(invoke_sub_arrays,
-                                         datatype="REAL",
-                                         intent="inout", kind="wp",
-                                         dimension=":,:",
-                                         entity_decls=self.unique_args_arrays)
-                invoke_sub_arrays.add(my_decl_arrays)
-            if len(self.unique_args_iscalars) > 0:
-                my_decl_iscalars = DeclGen(invoke_sub_arrays,
-                                           datatype="INTEGER",
-                                           intent="inout",
-                                           entity_decls=self.unique_args_iscalars)
-                invoke_sub_arrays.add(my_decl_iscalars)
-
+        if len(self.unique_grid_props) > 0:
+            my_decl_gprops = DeclGen(invoke_sub_arrays,
+                                     datatype="REAL",
+                                     intent="inout", kind="wp",
+                                     dimension="nx,ny",
+                                     entity_decls=self.unique_grid_props)
+            invoke_sub_arrays.add(my_decl_gprops)
 
 class GOSchedule(Schedule):
 
@@ -252,6 +357,11 @@ class GOSchedule(Schedule):
     def __init__(self, alg_calls):
         sequence = []
         from parse import InfCall
+
+        self.use_raw_arrays = True
+        self.iloop_stop = "xstop"
+        self.jloop_stop = "ystop"
+
         for call in alg_calls:
             if isinstance(call, InfCall):
                 sequence.append(GOInf.create(call, parent=self))
@@ -262,7 +372,8 @@ class GOSchedule(Schedule):
                 inner_loop = GOLoop(call=None, parent=outer_loop, 
                                     loop_type="inner")
                 outer_loop.addchild(inner_loop)
-                call = GOKern(call, parent=inner_loop)
+                call = GOKern(call, parent=inner_loop,
+                              use_raw_arrays=self.use_raw_arrays)
                 inner_loop.addchild(call)
                 # determine inner and outer loops space information from the
                 # child kernel call. This is only picked up automatically (by
@@ -277,6 +388,7 @@ class GOSchedule(Schedule):
                                         name
                 outer_loop.field_name = inner_loop.field_name
         Node.__init__(self, children=sequence)
+
 
 class GOLoop(Loop):
     ''' The GOcean specific Loop class. This passes the GOcean specific
@@ -301,44 +413,64 @@ class GOLoop(Loop):
 
     def gen_code(self, parent):
 
-        if self.field_space == "every":
-            from f2pygen import DeclGen, AssignGen
-            dim_var = DeclGen(parent, datatype="INTEGER",
-                              entity_decls=[self._variable_name])
-            parent.add(dim_var)
+        # Our schedule holds the names to use for the loop bounds.
+        # Climb up the tree looking for our enclosing Schedule
+        myparent = self.parent
+        while myparent is not None and\
+              not isinstance(myparent, GOSchedule):
+            myparent = myparent.parent
 
-            # loop bounds
-            self._start = "1"
+        if not isinstance(myparent, GOSchedule):
+            raise GenerationError("Internal error: cannot find parent"
+                                  " GOSchedule for this Do loop")
+        schedule = myparent
+
+        if schedule.use_raw_arrays:
+            self._start = "2"
             if self._loop_type == "inner":
-                self._stop = "SIZE("+self.field_name+"%data, 1)"
+                self._stop = "xstop"
             elif self._loop_type == "outer":
-                self._stop = "SIZE("+self.field_name+"%data, 2)"
+                self._stop = "ystop"
+        else:
+            if self.field_space == "every":
+                from f2pygen import DeclGen, AssignGen
+                dim_var = DeclGen(parent, datatype="INTEGER",
+                                  entity_decls=[self._variable_name])
+                parent.add(dim_var)
 
-        else: # one of our spaces so use values provided by the infrastructure
+                # loop bounds
+                self._start = "1"
+                if self._loop_type == "inner":
+                    self._stop = "SIZE("+self.field_name+"%data, 1)"
+                elif self._loop_type == "outer":
+                    self._stop = "SIZE("+self.field_name+"%data, 2)"
 
-            # loop bounds are pulled from the field object
-            self._start = self.field_name
-            self._stop = self.field_name
+            else: # one of our spaces so use values provided by the infrastructure
 
-            if self._iteration_space.lower() == "internal_pts":
-                self._start += "%internal"
-                self._stop += "%internal"
-            elif self._iteration_space.lower() == "all_pts":
-                self._start += "%whole"
-                self._stop += "%whole"
-            else:
-                raise GenerationError("Unrecognised iteration space, {0}. "
-                                      "Cannot generate loop bounds.".\
-                                      format(self._iteration_space))
+                # loop bounds are pulled from the field object
+                self._start = self.field_name
+                self._stop = self.field_name
 
-            if self._loop_type == "inner":
-                self._start += "%xstart"
-                self._stop += "%xstop"
-            elif self._loop_type == "outer":
-                self._start += "%ystart"
-                self._stop += "%ystop"
+                if self._iteration_space.lower() == "internal_pts":
+                    self._start += "%internal"
+                    self._stop += "%internal"
+                elif self._iteration_space.lower() == "all_pts":
+                    self._start += "%whole"
+                    self._stop += "%whole"
+                else:
+                    raise GenerationError("Unrecognised iteration space, {0}. "
+                                          "Cannot generate loop bounds.".\
+                                          format(self._iteration_space))
+
+                if self._loop_type == "inner":
+                    self._start += "%xstart"
+                    self._stop += "%xstop"
+                elif self._loop_type == "outer":
+                    self._start += "%ystart"
+                    self._stop += "%ystop"
 
         Loop.gen_code(self, parent)
+
 
 class GOInf(Inf):
     ''' A GOcean specific infrastructure call factory. No infrastructure
@@ -355,7 +487,7 @@ class GOKern(Kern):
         metadata. Uses this information to generate appropriate PSy layer
         code for the Kernel instance. Specialises the gen_code method to
         create the appropriate GOcean specific kernel call. '''
-    def __init__(self, call, parent=None):
+    def __init__(self, call, parent=None, use_raw_arrays=False):
         if False:
             self._arguments = GOKernelArguments(None, None) # for pyreverse
         Kern.__init__(self, GOKernelArguments, call, parent, check=False)
@@ -364,6 +496,11 @@ class GOKern(Kern):
         # store it here. This is used to check that all of the kernels
         # invoked by an application are using compatible index offsets.
         self._index_offset = call.ktype.index_offset
+
+        # Store whether or not the call to this kernel will be passing
+        # raw arrays (as opposed to having to dereference field
+        # objects)
+        self._use_raw_arrays = use_raw_arrays
 
     def local_vars(self):
         return []
@@ -406,18 +543,24 @@ class GOKern(Kern):
                 arguments.append(arg.name)
             elif arg.type == "field":
                 # Field objects are Fortran derived-types
-                arguments.append(arg.name + "%data")
-            elif arg.type == "grid_property":
-                # Argument is a property of the grid which we can access via
-                # the grid member of any field object.
-                # We use the most suitable field as chosen above.
-                if grid_arg is None:
-                    raise GenerationError("Error: kernel {0} requires "
-                                          "grid property {1} but does not "
-                                          "have any arguments that are "
-                                          "fields".format(self._name, arg.name))
+                if self._use_raw_arrays:
+                    arguments.append(arg.name)
                 else:
-                    arguments.append(grid_arg.name+"%grid%"+arg.name)
+                    arguments.append(arg.name + "%data")
+            elif arg.type == "grid_property":
+                if self._use_raw_arrays:
+                    arguments.append(arg.name)
+                else:
+                    # Argument is a property of the grid which we can access via
+                    # the grid member of any field object.
+                    # We use the most suitable field as chosen above.
+                    if grid_arg is None:
+                        raise GenerationError("Error: kernel {0} requires "
+                                              "grid property {1} but does not "
+                                              "have any arguments that are "
+                                              "fields".format(self._name, arg.name))
+                    else:
+                        arguments.append(grid_arg.name+"%grid%"+arg.name)
             else:
                 raise GenerationError("Kernel {0}, argument {1} has "
                                       "unrecognised type: {2}".\
