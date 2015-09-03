@@ -251,7 +251,8 @@ class GOInvokeArrays(GOInvoke):
             by the associated invoke call in the algorithm layer). This
             consists of the PSy invocation subroutine and the declaration of
             its arguments.'''
-        from f2pygen import SubroutineGen, DeclGen, TypeDeclGen, CallGen
+        from f2pygen import SubroutineGen, DeclGen, TypeDeclGen, CallGen,\
+            AssignGen
 
         # The arguments/variables for the extents of the arrays and
         # the upper bounds of associated loops
@@ -296,12 +297,31 @@ class GOInvokeArrays(GOInvoke):
                                        entity_decls=self.unique_args_iscalars)
             invoke_sub.add(my_decl_iscalars)
 
+        # Work out which field object is best for looking-up
+        # field extents and any properties of the grid
+        grid_arg = self._find_grid_accessor()
+
         # Constant integer scalars that give the array extents and the
         # upper limits to use in loops
+        # Declare in wrapper subroutine
         my_decl_iscalars = DeclGen(invoke_sub, datatype="INTEGER",
                                    entity_decls=array_bound_args)
         invoke_sub.add(my_decl_iscalars)
+        # Assign values for the array extents and upper loop limits
+        invoke_sub.add(AssignGen(invoke_sub,
+                                 lhs="nx",
+                                 rhs=grid_arg.name+"%grid%nx"))
+        invoke_sub.add(AssignGen(invoke_sub,
+                                 lhs="ny",
+                                 rhs=grid_arg.name+"%grid%ny"))
+        invoke_sub.add(AssignGen(invoke_sub,
+                                 lhs="xstop",
+                                 rhs=grid_arg.name+"%grid%simulation_domain%xstop"))
+        invoke_sub.add(AssignGen(invoke_sub,
+                                 lhs="ystop",
+                                 rhs=grid_arg.name+"%grid%simulation_domain%ystop"))
 
+        # Declare the corresponding dummy arguments in the PSy routine
         my_decl_iscalars = DeclGen(invoke_sub_arrays,
                                    datatype="INTEGER",
                                    intent="in",
@@ -310,9 +330,6 @@ class GOInvokeArrays(GOInvoke):
 
         # Call the subroutine that uses only raw Fortran arrays
 
-        # First, work out which field object is best for looking-up
-        # any properties of the grid
-        grid_arg = self._find_grid_accessor()
         # Now generate the list of arguments
         arg_list = array_bound_args[:]
         for arg in self.psy_unique_var_names:
