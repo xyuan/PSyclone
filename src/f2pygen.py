@@ -14,12 +14,9 @@
 
 from fparser.statements import Comment
 
-class OMPDirective(Comment):
-    ''' Subclass f2py comment for OpenMP directives so we can 
-        reason about them when walking the tree '''
+class Directive(Comment):
+
     def __init__(self,root,line,position,dir_type):
-        self._types = ["parallel do", "parallel", "do"]
-        self._positions = ["begin", "end"]
         if not dir_type in self._types:
             raise RuntimeError("Error, unrecognised directive type '{0}'. "
                                "Should be one of {1}".\
@@ -37,6 +34,26 @@ class OMPDirective(Comment):
     @property
     def position(self):
         return self._position
+
+class OMPDirective(Directive):
+    ''' Subclass f2py comment for OpenMP directives so we can 
+        reason about them when walking the tree '''
+    def __init__(self,root,line,position,dir_type):
+        self._types = ["parallel do", "parallel", "do"]
+        self._positions = ["begin", "end"]
+
+        Directive.__init__(self,root,line,position,dir_type)
+
+
+class ACCDirective(Directive):
+    ''' Subclass f2py comment for OpenACC directives so we can
+    reason about them when walking the tree '''
+    def __init__(self,root,line,position,dir_type):
+        self._types = ["parallel", "kernels", "enter data"]
+        self._positions = ["begin", "end"]
+
+        Directive.__init__(self,root,line,position,dir_type)
+
 
 ''' This section provides new classes which provide a relatively high level interface to creating code and adding code to an existing ast '''
 
@@ -154,7 +171,7 @@ class BaseGen(object):
         if index == 0:
             if debug:
                 print "current index is 0 so finish"
-        elif isinstance(parent.content[index-1],OMPDirective):
+        elif isinstance(parent.content[index-1],Directive):
             if debug:
                 print "preceding node is a directive so find out what type ..."
                 print "type is "+parent.content[index-1].position
@@ -342,7 +359,7 @@ class DirectiveGen(BaseGen):
 
     def __init__(self, parent, language, position, directive_type, content):
 
-        self._supported_languages = ["omp"]
+        self._supported_languages = ["omp", "acc"]
         self._language = language
         self._directive_type = directive_type
 
@@ -352,15 +369,27 @@ class DirectiveGen(BaseGen):
         subline=reader.next()
 
         if language == "omp":
-            my_comment=OMPDirective(parent.root,subline, position, directive_type)
+            my_comment=OMPDirective(parent.root,subline, position,
+                                    directive_type)
             my_comment.content="$omp"
             if position == "end":
                 my_comment.content+=" end"
             my_comment.content+=" "+directive_type
             if content!="":
                 my_comment.content+=" "+content
+        elif language == "acc":
+            my_comment=ACCDirective(parent.root,subline, position,
+                                    directive_type)
+            my_comment.content="$acc"
+            if position == "end":
+                my_comment.content+=" end"
+            my_comment.content+=" "+directive_type
+            if content!="":
+                my_comment.content+=" "+content
         else:
-            raise RuntimeError("Error, unsupported directive language. Expecting one of "+str(self._supported_languages)+" but found '"+language+"'")
+            raise RuntimeError(
+                "Error, unsupported directive language. Expecting one of "+\
+                str(self._supported_languages)+" but found '"+language+"'")
 
         BaseGen.__init__(self,parent,my_comment)
 

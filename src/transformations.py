@@ -170,10 +170,89 @@ class DynamoLoopFuseTrans(LoopFuseTrans):
         return LoopFuseTrans.apply(self, node1, node2)
 
 
+class OpenACCParallelTrans(Transformation):
+
+    ''' Adds an OpenACC parallel directive to a loop.
+
+        Any field data required by the kernel is added to the data
+        region associated with the parent Invoke '''
+
+    # TODO decide whether we should have a LoopTransformation
+    # base class to avoid code duplication, e.g. in checking that
+    # target node is a Loop.
+
+    def __str__(self):
+        return "Adds an OpenACC parallel directive"
+
+    @property
+    def name(self):
+        ''' Returns the name of this transformation as a string '''
+        return "OpenACCParallelTrans"
+
+    def apply(self, node):
+        '''Enclose the supplied node within an OpenACC parallel
+
+        Apply the OpenACCParallelTrans transformation to the specified 
+        node in a Schedule. This node must be a Loop since this transformation
+        corresponds to wrapping the generated code with directives like so:
+
+        .. code-block:: fortran
+
+          !$ACC PARALLEL
+          do ...
+             ...
+          end do
+          !$OMP END PARALLEL
+
+        If the Invoke containing this kernel does not already contain
+        a data region the one is added. Any fields accessed by the
+        kernel will be added to this data region in order to ensure
+        they remain on the target device.
+
+        '''
+        # Check that the supplied node is a Loop
+        from psyGen import Loop
+        if not isinstance(node, Loop):
+            raise TransformationError("Cannot apply an OpenMP Loop "
+                                      "directive to something that is "
+                                      "not a loop")
+
+        schedule = node.root
+
+        # create a memento of the schedule and the proposed
+        # transformation
+        from undoredo import Memento
+        keep = Memento(schedule, self, [node])
+
+        # keep a reference to the node's original parent and its index as these
+        # are required and will change when we change the node's location
+        node_parent = node.parent
+        node_position = node.position
+
+        # add our OpenACC parallel directive setting its parent to
+        # the node's parent and its children to the node
+        from psyGen import ACCParallelDirective
+        directive = ACCParallelDirective(parent=node_parent,
+                                         children=[node])
+
+        # add the OpenACC parallel directive as a child of the node's parent
+        node_parent.addchild(directive, index=node_position)
+
+        # change the node's parent to be the directive
+        node.parent = directive
+
+        # remove the original loop
+        node_parent.children.remove(node)
+
+        return schedule, keep
+
+
 class OMPLoopTrans(Transformation):
 
-    ''' Adds an orphaned OpenMP directive to a loop. i.e. the directive
-        must be inside the scope of some other OMP Parallel REGION. This
+    ''' Adds an orphaned OpenMP directive to a loop. 
+
+        i.e. the directive must be inside the scope of some other
+        OMP Parallel REGION. This
         condition is tested at code-generation time.
         For example:
 

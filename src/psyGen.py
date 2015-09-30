@@ -652,6 +652,7 @@ class Schedule(Node):
         for entity in self._children:
             entity.gen_code(parent)
 
+
 class Directive(Node):
 
     def view(self,indent = 0):
@@ -659,12 +660,40 @@ class Directive(Node):
         for entity in self._children:
             entity.view(indent = indent + 1)
 
+
+class ACCDirective(Directive):
+
+    def view(self,indent = 0):
+        print self.indent(indent)+"Directive[OpenACC]"
+        for entity in self._children:
+            entity.view(indent = indent + 1)
+
+
+class ACCParallelDirective(ACCDirective):
+
+    def view(self,indent = 0):
+        print self.indent(indent)+"Directive[ACC Parallel]"
+        for entity in self._children:
+            entity.view(indent = indent + 1)
+
+    def gen_code(self, parent):
+        from f2pygen import DirectiveGen
+        parent.add(DirectiveGen(parent, "acc", "begin", "parallel",
+                                "present(XXX)"))
+
+        for child in self.children:
+            child.gen_code(parent)
+
+        parent.add(DirectiveGen(parent, "acc", "end", "parallel", ""))
+
+
 class OMPDirective(Directive):
 
     def view(self,indent = 0):
         print self.indent(indent)+"Directive[OMP]"
         for entity in self._children:
             entity.view(indent = indent + 1)
+
 
 class OMPParallelDirective(OMPDirective):
 
