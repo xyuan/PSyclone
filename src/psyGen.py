@@ -678,13 +678,32 @@ class ACCParallelDirective(ACCDirective):
 
     def gen_code(self, parent):
         from f2pygen import DirectiveGen
+
+        # Look-up the names of the variables required by the kernels
+        # that are called within this OpenACC parallel region
+        vars = self._get_var_list()
+
         parent.add(DirectiveGen(parent, "acc", "begin", "parallel",
-                                "present(XXX)"))
+                                "present("+vars+")"))
 
         for child in self.children:
             child.gen_code(parent)
 
         parent.add(DirectiveGen(parent, "acc", "end", "parallel", ""))
+
+    def _get_var_list(self):
+        '''Returns a comma-separated list of the names of the variables
+        required by the Kernel call(s) that are children of this
+        directive.
+
+        '''
+        variables = ""
+
+        # Look-up the calls that are children of this node
+        my_calls = self.walk(self.children, Call)
+        for call in my_calls:
+            variables += call.arguments.raw_arg_list
+        return variables
 
 
 class OMPDirective(Directive):
