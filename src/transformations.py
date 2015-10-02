@@ -192,7 +192,7 @@ class OpenACCParallelTrans(Transformation):
     def apply(self, node):
         '''Enclose the supplied node within an OpenACC parallel
 
-        Apply the OpenACCParallelTrans transformation to the specified 
+        Apply the OpenACCParallelTrans transformation to the specified
         node in a Schedule. This node must be a Loop since this transformation
         corresponds to wrapping the generated code with directives like so:
 
@@ -204,16 +204,11 @@ class OpenACCParallelTrans(Transformation):
           end do
           !$OMP END PARALLEL
 
-        If the Invoke containing this kernel does not already contain
-        a data region the one is added. Any fields accessed by the
-        kernel will be added to this data region in order to ensure
-        they remain on the target device.
-
         '''
         # Check that the supplied node is a Loop
         from psyGen import Loop
         if not isinstance(node, Loop):
-            raise TransformationError("Cannot apply an OpenMP Loop "
+            raise TransformationError("Cannot apply an OpenACC Parallel "
                                       "directive to something that is "
                                       "not a loop")
 
@@ -247,9 +242,52 @@ class OpenACCParallelTrans(Transformation):
         return schedule, keep
 
 
+class OpenACCDataTrans(Transformation):
+
+    ''' Adds an OpenACC begin data directive to a Schedule '''
+
+    def __str__(self):
+        return "Adds an OpenACC begin data directive"
+
+    @property
+    def name(self):
+        ''' Returns the name of this transformation as a string '''
+        return "OpenACCDataTrans"
+
+    def apply(self, node):
+        '''Adds an OpenACC data region to the invoke associated with the
+        supplied Schedule. Any fields accessed by OpenACC kernels
+        within this schedule will be added to this data region in
+        order to ensure they remain on the target device.
+
+        '''
+        # Check that the supplied node is a Schedule
+        from psyGen import Schedule, ACCDataDirective
+        if not isinstance(node, Schedule):
+            raise TransformationError("Cannot apply an OpenACC data "
+                                      "directive to something that is "
+                                      "not a Schedule")
+        schedule = node
+        # Check that we don't already have a data region
+        data_dir = schedule.walk(schedule.children, ACCDataDirective)
+        if len(data_dir) != 0:
+            raise TransformationError("Schedule already has an OpenACC "
+                                      "data region - cannot add another.")
+        # create a memento of the schedule and the proposed
+        # transformation
+        from undoredo import Memento
+        keep = Memento(schedule, self, [schedule])
+
+        # Add the directive
+        data_dir = ACCDataDirective(parent=schedule, children=[])
+        schedule.addchild(data_dir, index=0)
+
+        return schedule, keep
+
+
 class OMPLoopTrans(Transformation):
 
-    ''' Adds an orphaned OpenMP directive to a loop. 
+    ''' Adds an orphaned OpenMP directive to a loop.
 
         i.e. the directive must be inside the scope of some other
         OMP Parallel REGION. This

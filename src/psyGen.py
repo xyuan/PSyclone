@@ -654,6 +654,12 @@ class Schedule(Node):
 
 
 class Directive(Node):
+    '''Base class for all Directive statments.
+
+    All classes that generate Directive statments (e.g. OpenMP,
+    OpenACC, compiler-specific) inherit from this class.
+
+    '''
 
     def view(self,indent = 0):
         print self.indent(indent)+"Directive"
@@ -662,6 +668,7 @@ class Directive(Node):
 
 
 class ACCDirective(Directive):
+    ''' Base class for all OpenACC directive statments. '''
 
     def view(self,indent = 0):
         print self.indent(indent)+"Directive[OpenACC]"
@@ -669,7 +676,42 @@ class ACCDirective(Directive):
             entity.view(indent = indent + 1)
 
 
+class ACCDataDirective(ACCDirective):
+    ''' Class for the !$ACC enter data OpenACC directive '''
+
+    def view(self,indent = 0):
+        print self.indent(indent)+"Directive[OpenACC enter data]"
+        for entity in self._children:
+            entity.view(indent = indent + 1)
+
+    def gen_code(self, parent):
+        from f2pygen import DirectiveGen, CommentGen
+
+        # We must generate a list of all of the fields accessed by
+        # OpenACC kernels (calls within an OpenACC parallel directive)
+        # 1. Find all parallel directives
+        var_list = []
+        acc_dirs = self.walk(self.root.children, ACCParallelDirective)
+        # 2. For each directive, loop over each of the fields used by
+        #    the kernels it contains (this list is given by var_list)
+        #    and add it to our list if we don't already have it
+        for pdir in acc_dirs:
+            for var in pdir.var_list:
+                if var not in var_list:
+                    var_list.append(var)
+        # 3. Convert this list of objects into a comma-delimited string
+        var_str = self.list_to_string(var_list)
+
+        parent.add(CommentGen(parent,
+                              " Ensure all fields are on the device and"))
+        parent.add(CommentGen(parent, " copy them over if not."))
+        parent.add(DirectiveGen(parent, "acc", "begin", "enter data",
+                                "pcopyin("+var_str+")"))
+        parent.add(CommentGen(parent,""))
+
+
 class ACCParallelDirective(ACCDirective):
+    ''' Class for the !$ACC PARALLEL directive of OpenACC. '''
 
     def view(self,indent = 0):
         print self.indent(indent)+"Directive[ACC Parallel]"
@@ -681,7 +723,7 @@ class ACCParallelDirective(ACCDirective):
 
         # Look-up the names of the variables required by the kernels
         # that are called within this OpenACC parallel region
-        vars = self._get_var_list()
+        vars = self.list_to_string(self.var_list)
 
         parent.add(DirectiveGen(parent, "acc", "begin", "parallel",
                                 "present("+vars+")"))
@@ -691,18 +733,21 @@ class ACCParallelDirective(ACCDirective):
 
         parent.add(DirectiveGen(parent, "acc", "end", "parallel", ""))
 
-    def _get_var_list(self):
-        '''Returns a comma-separated list of the names of the variables
+    @property
+    def var_list(self):
+        '''Returns a list of the names of the variables
         required by the Kernel call(s) that are children of this
         directive.
 
         '''
-        variables = ""
+        variables = []
 
         # Look-up the calls that are children of this node
         my_calls = self.walk(self.children, Call)
         for call in my_calls:
-            variables += call.arguments.raw_arg_list
+            for arg in call.arguments.args:
+                if arg not in variables:
+                    variables.append(arg.name)
         return variables
 
 
