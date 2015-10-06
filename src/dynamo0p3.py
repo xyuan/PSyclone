@@ -13,13 +13,16 @@
     required base classes in psyGen.py (PSy, Invokes, Invoke, Schedule,
     Loop, Kern, Inf, Arguments and Argument). '''
 
-# first section : Parser specialisations and classes
-
 # imports
 from parse import Descriptor, KernelType, ParseError
 import expression as expr
 import fparser
 import os
+from psyGen import PSy, Invokes, Invoke, Schedule, Loop, Kern, Arguments, \
+    Argument, Inf, NameSpaceFactory, GenerationError, FieldNotFoundError
+
+
+# first section : Parser specialisations and classes
 
 # constants
 VALID_ANY_SPACE_NAMES = ["any_space_1", "any_space_2", "any_space_3",
@@ -33,6 +36,11 @@ VALID_OPERATOR_NAMES = ["gh_basis", "gh_diff_basis", "gh_orientation"]
 VALID_ARG_TYPE_NAMES = ["gh_field", "gh_operator"]
 
 VALID_ACCESS_DESCRIPTOR_NAMES = ["gh_read", "gh_write", "gh_inc"]
+
+# The mapping from meta-data strings to field-access types
+# used in this API.
+FIELD_ACCESS_MAP = {"write": "gh_write", "read": "gh_read",
+                    "readwrite": "gh_rw", "inc": "gh_inc"}
 
 # classes
 
@@ -200,7 +208,7 @@ class DynArgDescriptor03(Descriptor):
                 raise ParseError(
                     "In the dynamo0.3 API each meta_arg entry must have 4 "
                     "arguments if its first argument is gh_operator, but "
-                    "found {0} in '{1}'").format(len(arg_type.args), arg_type)
+                    "found {0} in '{1}'".format(len(arg_type.args), arg_type))
             if arg_type.args[2].name not in VALID_FUNCTION_SPACE_NAMES:
                 raise ParseError(
                     "In the dynamo0.3 API the 3rd argument of a meta_arg "
@@ -309,12 +317,12 @@ class DynArgDescriptor03(Descriptor):
         return "DynArgDescriptor03({0})".format(self._arg_type)
 
 
-class DynKernelType03(KernelType):
+class DynKernMetadata(KernelType):
     ''' Captures the Kernel subroutine code and metadata describing
     the subroutine for the Dynamo 0.3 API. '''
 
-    def __init__(self, name, ast):
-        KernelType.__init__(self, name, ast)
+    def __init__(self, ast, name=None):
+        KernelType.__init__(self, ast, name=name)
         # parse the arg_type metadata
         self._arg_descriptors = []
         for arg_type in self._inits:
@@ -371,10 +379,6 @@ class DynKernelType03(KernelType):
         return self._func_descriptors
 
 # Second section : PSy specialisations
-
-# imports
-from psyGen import PSy, Invokes, Invoke, Schedule, Loop, Kern, Arguments, \
-    Argument, GenerationError, Inf, NameSpaceFactory
 
 # classes
 
@@ -569,6 +573,14 @@ class DynInvoke(Invoke):
                     return True
         # none of my kernels require a diff basis function for this
         # function space
+        return False
+
+    def is_coloured(self):
+        ''' Returns true if at least one of the loops in the
+        schedule of this invoke has been coloured '''
+        for loop in self.schedule.loops():
+            if loop.loop_type == "colours":
+                return True
         return False
 
     def ndf_name(self, func_space):
@@ -789,6 +801,15 @@ class DynInvoke(Invoke):
                                    allocatable=True,
                                    kind="r_def",
                                    entity_decls=operator_declarations))
+
+        if self.is_coloured():
+            # Add declarations of the colour map and array holding the
+            # no. of cells of each colour
+            invoke_sub.add(DeclGen(parent, datatype="integer",
+                                   pointer=True,
+                                   entity_decls=["cmap(:,:)",
+                                                 "ncp_colour(:)"]))
+
         if self.qr_required:
             # add calls to compute the values of any basis arrays
             invoke_sub.add(CommentGen(invoke_sub, ""))
@@ -873,23 +894,46 @@ class DynLoop(Loop):
     we require.  Creates Dynamo specific loop bounds when the code is
     being generated. '''
 
-    def __init__(self, call=None, parent=None):
+    def __init__(self, call=None, parent=None,
+                 loop_type=""):
         Loop.__init__(self, DynInf, DynKern, call=call, parent=parent,
-                      valid_loop_types=["colours", "colour"])
+                      valid_loop_types=["colours", "colour", ""])
+        self.loop_type = loop_type
+
+        if self._loop_type == "colours":
+            self._variable_name = "colour"
+        elif self._loop_type == "colour":
+            self._variable_name = "cell"
+        else:
+            self._variable_name = "cell"
+
+    def has_inc_arg(self, mapping=None):
+        ''' Returns True if any of the Kernels called within this loop
+        have an argument with INC access. Returns False otherwise. '''
+        if mapping is not None:
+            my_mapping = mapping
+        else:
+            my_mapping = FIELD_ACCESS_MAP
+        return Loop.has_inc_arg(self, my_mapping)
 
     def gen_code(self, parent):
         ''' Work out the appropriate loop bounds and variable name
         depending on the loop type and then call the base class to
         generate the code. '''
+
+        # Check that we're not within an OpenMP parallel region if
+        # we are a loop over colours.
+        if self._loop_type == "colours" and self.is_openmp_parallel():
+                    raise GenerationError("Cannot have a loop over "
+                                          "colours within an OpenMP "
+                                          "parallel region.")
+        # Set-up loop bounds
         self._start = "1"
         if self._loop_type == "colours":
-            self._variable_name = "colour"
             self._stop = "ncolour"
         elif self._loop_type == "colour":
-            self._variable_name = "cell"
-            self._stop = "ncp_ncolour(colour)"
+            self._stop = "ncp_colour(colour)"
         else:
-            self._variable_name = "cell"
             self._stop = self.field.proxy_name_indexed + "%" + \
                 self.field.ref_name + "%get_ncell()"
         Loop.gen_code(self, parent)
@@ -910,54 +954,98 @@ class DynInf(Inf):
 
 class DynKern(Kern):
     ''' Stores information about Dynamo Kernels as specified by the
-    Kernel metadata. Uses this information to generate appropriate PSy
-    layer code for the Kernel instance. '''
+    Kernel metadata and associated algorithm call. Uses this
+    information to generate appropriate PSy layer code for the Kernel
+    instance or to generate a Kernel stub'''
 
-    def __init__(self, call, parent=None):
+    def __init__(self):
         if False:
             self._arguments = DynKernelArguments(None, None)  # for pyreverse
-        Kern.__init__(self, DynKernelArguments, call, parent, check=False)
-        self._func_descriptors = call.ktype.func_descriptors
-        self._fs_descriptors = FSDescriptors(call.ktype.func_descriptors)
-        # dynamo 0.3 api kernels require quadrature rule arguments to be
-        # passed in if one or more basis functions are used by the kernel.
+
+    def load(self, call, parent=None):
+        ''' sets up kernel information with the call object which is
+        created by the parser. This object includes information about
+        the invoke call and the associated kernel'''
+        self._setup_qr(call.ktype.func_descriptors)
+        self._setup(call.ktype, call.module_name, call.args, parent)
+
+    def load_meta(self, ktype):
+        ''' sets up kernel information with the kernel type object
+        which is created by the parser. The object includes the
+        metadata describing the kernel code '''
+
+        # create a name for each argument
+        from parse import Arg
+        args = []
+        for idx, descriptor in enumerate(ktype.arg_descriptors):
+            pre = None
+            if descriptor.type.lower() == "gh_operator":
+                pre = "op_"
+            elif descriptor.type.lower() == "gh_field":
+                pre = "field_"
+            else:
+                raise GenerationError(
+                    "load_meta expected one of 'gh_field, gh_operator' but "
+                    "found '{0}'".format(descriptor.type))
+            args.append(Arg("variable", pre+str(idx+1)))
+        # initialise qr so we can test whether it is required
+        self._setup_qr(ktype.func_descriptors)
+        if self._qr_required:
+            # it is required so add a qr algorithm argument
+            args.append(Arg("variable", "qr"))
+        self._setup(ktype, "dummy_name", args, None)
+
+    def _setup_qr(self, func_descriptors):
+        ''' initialisation of the qr information. This may be needed before
+        general setup so is computed in a separate method. '''
         self._qr_required = False
-        self._qr_args = ["nqp_h", "nqp_v", "wh", "wv"]
-        for descriptor in call.ktype.func_descriptors:
+        for descriptor in func_descriptors:
             if len(descriptor.operator_names) > 0:
                 self._qr_required = True
                 break
+
+    def _setup(self, ktype, module_name, args, parent):
+        ''' internal setup of kernel information. '''
+        from parse import KernelCall
+        Kern.__init__(self, DynKernelArguments,
+                      KernelCall(module_name, ktype, args),
+                      parent, check=False)
+        self._func_descriptors = ktype.func_descriptors
+        self._fs_descriptors = FSDescriptors(ktype.func_descriptors)
+        # dynamo 0.3 api kernels require quadrature rule arguments to be
+        # passed in if one or more basis functions are used by the kernel.
+        self._qr_args = {"nh": "nqp_h", "nv": "nqp_v", "h": "wh", "v": "wv"}
         # perform some consistency checks as we have switched these
         # off in the base class
         if self._qr_required:
             # check we have an extra argument in the algorithm call
-            if len(call.ktype.arg_descriptors)+1 != len(call.args):
+            if len(ktype.arg_descriptors)+1 != len(args):
                 raise GenerationError(
                     "error: QR is required for kernel '{0}' which means that "
                     "a QR argument must be passed by the algorithm layer. "
                     "Therefore the number of arguments specified in the "
                     "kernel metadata '{1}', must be one less than the number "
                     "of arguments in the algorithm layer. However, I found "
-                    "'{2}'".format(call.ktype.procedure.name,
-                                   len(call.ktype.arg_descriptors),
-                                   len(call.args)))
+                    "'{2}'".format(ktype.procedure.name,
+                                   len(ktype.arg_descriptors),
+                                   len(args)))
         else:
             # check we have the same number of arguments in the
             # algorithm call and the kernel metadata
-            if len(call.ktype.arg_descriptors) != len(call.args):
+            if len(ktype.arg_descriptors) != len(args):
                 raise GenerationError(
                     "error: QR is not required for kernel '{0}'. Therefore "
                     "the number of arguments specified in the kernel "
                     "metadata '{1}', must equal the number of arguments in "
                     "the algorithm layer. However, I found '{2}'".
-                    format(call.ktype.procedure.name,
-                           len(call.ktype.arg_descriptors), len(call.args)))
+                    format(ktype.procedure.name,
+                           len(ktype.arg_descriptors), len(args)))
         # if there is a quadrature rule, what is the name of the
         # algorithm argument?
         self._qr_text = ""
         self._qr_name = ""
         if self._qr_required:
-            qr_arg = call.args[len(call.args)-1]
+            qr_arg = args[-1]
             self._qr_text = qr_arg.text
             self._name_space_manager = NameSpaceFactory().create()
             # use our namespace manager to create a unique name unless
@@ -995,7 +1083,19 @@ class DynKern(Kern):
         ''' Returns the names used by the Kernel that vary from one
         invocation to the next and therefore require privatisation
         when parallelised. '''
-        raise GenerationError("DynKern:local_vars is not yet implemented")
+        lvars = []
+        # Dof maps for fields
+        for unique_fs in self.arguments.unique_fss:
+            if self.field_on_space(unique_fs):
+                # A map is required as there is a field on this space
+                lvars.append(self._fs_descriptors.map_name(unique_fs))
+        # Orientation maps
+        for unique_fs in self.arguments.unique_fss:
+            if self._fs_descriptors.exists(unique_fs):
+                fs_descriptor = self._fs_descriptors.get_descriptor(unique_fs)
+                if fs_descriptor.orientation:
+                    lvars.append(fs_descriptor.orientation_name)
+        return lvars
 
     def field_on_space(self, func_space):
         ''' Returns True if a field exists on this space for this kernel. '''
@@ -1006,6 +1106,276 @@ class DynKern(Kern):
                     return True
         return False
 
+    def _create_arg_list(self, parent, my_type="call"):
+        ''' creates the kernel call or kernel stub subroutine argument
+        list. For kernel stubs it also creates the data
+        declarations. '''
+        from f2pygen import DeclGen, AssignGen, UseGen
+        if my_type == "subroutine":
+            # add in any required USE associations
+            parent.add(UseGen(parent, name="constants_mod", only="True",
+                              funcnames=["r_def"]))
+        # create the argument list
+        arglist = []
+        if self._arguments.has_operator:
+            # 0.5: provide cell position
+            arglist.append("cell")
+            if my_type == "subroutine":
+                parent.add(DeclGen(parent, datatype="integer", intent="in",
+                                   entity_decls=["cell"]))
+        # 1: provide mesh height
+        arglist.append("nlayers")
+        if my_type == "subroutine":
+            parent.add(DeclGen(parent, datatype="integer", intent="in",
+                               entity_decls=["nlayers"]))
+        # 2: Provide data associated with fields in the order
+        #    specified in the metadata.  If we have a vector field
+        #    then generate the appropriate number of arguments.
+        first_arg = True
+        first_arg_decl = None
+        for arg in self._arguments.args:
+            undf_name = self._fs_descriptors.undf_name(arg.function_space)
+            if arg.type == "gh_field":
+                dataref = "%data"
+                if arg.vector_size > 1:
+                    for idx in range(1, arg.vector_size+1):
+                        if my_type == "subroutine":
+                            text = arg.name + "_" + arg.function_space + \
+                                "_v" + str(idx)
+                            intent = arg.intent
+                            decl = DeclGen(parent, datatype="real",
+                                           kind="r_def", dimension=undf_name,
+                                           intent=intent, entity_decls=[text])
+                            parent.add(decl)
+                            if first_arg:
+                                first_arg = False
+                                first_arg_decl = decl
+                        else:
+                            text = arg.proxy_name + "(" + str(idx) + ")" + \
+                                   dataref
+                        arglist.append(text)
+                else:
+                    if my_type == "subroutine":
+                        text = arg.name + "_" + arg.function_space
+                        intent = arg.intent
+                        decl = DeclGen(parent, datatype="real",
+                                       kind="r_def", dimension=undf_name,
+                                       intent=intent, entity_decls=[text])
+                        parent.add(decl)
+                        if first_arg:
+                            first_arg = False
+                            first_arg_decl = decl
+                    else:
+                        text = arg.proxy_name+dataref
+                    arglist.append(text)
+            elif arg.type == "gh_operator":
+                if my_type == "subroutine":
+                    # check whether the operator works on the same space.
+                    if arg.descriptor.function_space_from != \
+                       arg.descriptor.function_space_to:
+                        raise GenerationError(
+                            "Stub gen currently assumes that operators work "
+                            "on the same function space, therefore the "
+                            "declarations will be incorrect. The generator"
+                            "needs to know which dimension is 'from' and "
+                            "which is 'to' before we can generate the "
+                            "correct code.")
+                    size = arg.name+"_ncell_3d"
+                    arglist.append(size)
+                    decl = DeclGen(parent, datatype="integer", intent="in",
+                                   entity_decls=[size])
+                    parent.add(decl)
+                    if first_arg:
+                        first_arg = False
+                        first_arg_decl = decl
+                    text = arg.name
+                    arglist.append(text)
+                    intent = arg.intent
+                    ndf_name = self._fs_descriptors.ndf_name(
+                        arg.function_space)
+                    parent.add(DeclGen(parent, datatype="real",
+                                       kind="r_def",
+                                       dimension=ndf_name + "," + ndf_name +
+                                       "," + size,
+                                       intent=intent, entity_decls=[text]))
+                else:
+                    arglist.append(arg.proxy_name_indexed+"%ncell_3d")
+                    arglist.append(arg.proxy_name_indexed+"%local_stencil")
+            else:
+                raise GenerationError(
+                    "Unexpected arg type found in "
+                    "dynamo0p3.py:DynKern:gen_code(). Expected one of"
+                    " [gh_field, gh_operator] but found " + arg.type)
+        # 3: For each function space (in the order they appear in the
+        # metadata arguments)
+        for unique_fs in self.arguments.unique_fss:
+            # 3.1 Provide compulsory arguments common to operators and
+            # fields on a space. There is one: "ndf".
+            ndf_name = self._fs_descriptors.ndf_name(unique_fs)
+            arglist.append(ndf_name)
+            if my_type == "subroutine":
+                parent.add(DeclGen(parent, datatype="integer", intent="in",
+                           entity_decls=[ndf_name]))
+            # 3.1.1 Provide additional compulsory arguments if there
+            # is a field on this space
+            if self.field_on_space(unique_fs):
+                undf_name = self._fs_descriptors.undf_name(unique_fs)
+                arglist.append(undf_name)
+                map_name = self._fs_descriptors.map_name(unique_fs)
+                arglist.append(map_name)
+                if my_type == "subroutine":
+                    # ndf* declarations need to be before argument
+                    # declarations as some compilers don't like
+                    # declarations after they have been used. We place
+                    # ndf* before the first argument declaration
+                    # (field or operator) (rather than after nlayers)
+                    # as this keeps the declarations in the order
+                    # specified in the metadata and first used by
+                    # fields/operators.
+                    parent.add(DeclGen(parent, datatype="integer", intent="in",
+                                       entity_decls=[undf_name]),
+                               position=["before", first_arg_decl.root])
+                    parent.add(DeclGen(parent, datatype="integer", intent="in",
+                                       dimension=ndf_name,
+                                       entity_decls=[map_name]))
+            # 3.2 Provide any optional arguments. These arguments are
+            # associated with the keyword arguments (basis function,
+            # differential basis function and orientation) for a
+            # function space.
+            if self._fs_descriptors.exists(unique_fs):
+                descriptor = self._fs_descriptors.get_descriptor(unique_fs)
+                if descriptor.requires_basis:
+                    basis_name = descriptor.basis_name
+                    arglist.append(basis_name)
+                    if my_type == "subroutine":
+                        # the size of the first dimension for a
+                        # basis array depends on the
+                        # function space. The values are
+                        # w0=1, w1=3, w2=3, w3=1
+                        first_dim = None
+                        if unique_fs.lower() in ["w0", "w3"]:
+                            first_dim = "1"
+                        elif unique_fs.lower() in ["w1", "w2"]:
+                            first_dim = "3"
+                        else:
+                            raise GenerationError(
+                                "Unsupported space for basis function, "
+                                "expecting one of 'W0,W1,W2,W3' but found "
+                                "'{0}'".format(unique_fs))
+                        parent.add(DeclGen(parent, datatype="real",
+                                           kind="r_def", intent="in",
+                                           dimension=first_dim + "," +
+                                           ndf_name + "," +
+                                           self._qr_args["nh"] + "," +
+                                           self._qr_args["nv"],
+                                           entity_decls=[basis_name]))
+                if descriptor.requires_diff_basis:
+                    diff_basis_name = descriptor.diff_basis_name
+                    arglist.append(diff_basis_name)
+                    if my_type == "subroutine":
+                        # the size of the first dimension for a
+                        # differential basis array depends on the
+                        # function space. The values are
+                        # w0=3,w1=3,w2=1,w3=1
+                        first_dim = None
+                        if unique_fs.lower() in ["w2", "w3"]:
+                            first_dim = "1"
+                        elif unique_fs.lower() in ["w0", "w1"]:
+                            first_dim = "3"
+                        else:
+                            raise GenerationError(
+                                "Unsupported space for differential basis "
+                                "function, expecting one of 'W0,W1,W2,W3'"
+                                " but found '{0}'".format(unique_fs))
+                        parent.add(DeclGen(parent, datatype="real",
+                                           kind="r_def", intent="in",
+                                           dimension=first_dim + "," +
+                                           ndf_name + "," +
+                                           self._qr_args["nh"] + "," +
+                                           self._qr_args["nv"],
+                                           entity_decls=[diff_basis_name]))
+                if descriptor.requires_orientation:
+                    orientation_name = descriptor.orientation_name
+                    arglist.append(orientation_name)
+                    if my_type == "subroutine":
+                        parent.add(DeclGen(parent, datatype="integer",
+                                           intent="in", dimension=ndf_name,
+                                           entity_decls=[orientation_name]))
+            # 3.3 Fix for boundary_dofs array to the boundary
+            # condition kernel (enforce_bc_kernel) arguments
+            if self.name.lower() == "enforce_bc_code" and \
+               unique_fs.lower() == "any_space_1":
+                arglist.append("boundary_dofs")
+                if my_type == "subroutine":
+                    ndf_name = self._fs_descriptors.ndf_name("any_space_1")
+                    parent.add(DeclGen(parent, datatype="integer", intent="in",
+                                       dimension=ndf_name+",2",
+                                       entity_decls=["boundary_dofs"]))
+                if my_type == "call":
+                    parent.add(DeclGen(parent, datatype="integer",
+                                       pointer=True, entity_decls=[
+                                           "boundary_dofs(:,:) => null()"]))
+                    proxy_name = self._arguments.get_field("any_space_1").\
+                        proxy_name
+                    new_parent, position = parent.start_parent_loop()
+                    new_parent.add(AssignGen(new_parent, pointer=True,
+                                             lhs="boundary_dofs",
+                                             rhs=proxy_name +
+                                             "%vspace%get_boundary_dofs()"),
+                                   position=["before", position])
+        # 4: Provide qr arguments if required
+        if self._qr_required:
+            arglist.extend([self._qr_args["nh"], self._qr_args["nv"],
+                            self._qr_args["h"], self._qr_args["v"]])
+            if my_type == "subroutine":
+                parent.add(DeclGen(parent, datatype="integer", intent="in",
+                                   entity_decls=[self._qr_args["nh"],
+                                                 self._qr_args["nv"]]))
+                parent.add(DeclGen(parent, datatype="real", kind="r_def",
+                                   intent="in", dimension=self._qr_args["nh"],
+                                   entity_decls=[self._qr_args["h"]]))
+                parent.add(DeclGen(parent, datatype="real", kind="r_def",
+                                   intent="in", dimension=self._qr_args["nv"],
+                                   entity_decls=[self._qr_args["v"]]))
+        return arglist
+
+    @property
+    def gen_stub(self):
+        ''' output a kernel stub '''
+        from f2pygen import ModuleGen, SubroutineGen
+        # create an empty PSy layer module
+        psy_module = ModuleGen(self.name+"_mod")
+
+        # create the subroutine
+        sub_stub = SubroutineGen(psy_module, name=self.name+"_code")
+        # create the arglist and declarations
+        arglist = self._create_arg_list(sub_stub, my_type="subroutine")
+        # add the arglist
+        sub_stub.args = arglist
+        # add the subroutine to the parent module
+        psy_module.add(sub_stub)
+        return psy_module.root
+
+    @property
+    def incremented_field(self, mapping=None):
+        ''' Returns the argument corresponding to a field that has
+        INC access.  '''
+        if mapping is None:
+            my_mapping = FIELD_ACCESS_MAP
+        else:
+            my_mapping = mapping
+        return Kern.incremented_field(self, my_mapping)
+
+    @property
+    def written_field(self, mapping=None):
+        ''' Returns the argument corresponding to a field that has
+        WRITE access '''
+        if mapping is None:
+            my_mapping = FIELD_ACCESS_MAP
+        else:
+            my_mapping = mapping
+        return Kern.written_field(self, my_mapping)
+
     def gen_code(self, parent):
         ''' Generates dynamo version 0.3 specific psy code for a call to
             the dynamo kernel instance. '''
@@ -1013,12 +1383,67 @@ class DynKern(Kern):
             IfThenGen
         parent.add(DeclGen(parent, datatype="integer",
                            entity_decls=["cell"]))
+
+        # If this kernel is being called from within a coloured
+        # loop then we have to look-up the colour map
+        if self.is_coloured():
+
+            # Find which argument object has INC access in order to look-up
+            # the colour map
+            try:
+                arg = self.incremented_field
+            except FieldNotFoundError:
+                # TODO Warn that we're colouring a kernel that has
+                # no field object with INC access
+                arg = self.written_field
+
+            new_parent, position = parent.start_parent_loop()
+            # Add the look-up of the colouring map for this kernel
+            # call
+            new_parent.add(CommentGen(new_parent, ""),
+                           position=["before", position])
+            new_parent.add(CommentGen(new_parent, " Look-up colour map"),
+                           position=["before", position])
+            new_parent.add(CommentGen(new_parent, ""),
+                           position=["before", position])
+            name = arg.proxy_name_indexed + \
+                "%" + arg.ref_name + "%get_colours"
+            new_parent.add(CallGen(new_parent,
+                                   name=name,
+                                   args=["ncolour", "ncp_colour", "cmap"]),
+                           position=["before", position])
+            new_parent.add(CommentGen(new_parent, ""),
+                           position=["before", position])
+
+            # We must pass the colour map to the dofmap/orientation
+            # lookup rather than just the cell
+            dofmap_args = "cmap(colour, cell)"
+        else:
+            # This kernel call has not been coloured
+            #  - is it OpenMP parallel, i.e. are we a child of
+            # an OpenMP directive?
+            if self.is_openmp_parallel():
+                try:
+                    # It is OpenMP parallel - does it have an argument
+                    # with INC access?
+                    arg = self.incremented_field
+                except FieldNotFoundError:
+                    arg = None
+                if arg:
+                    raise GenerationError("Kernel {0} has an argument with "
+                                          "INC access and therefore must "
+                                          "be coloured in order to be "
+                                          "parallelised with OpenMP".
+                                          format(self._name))
+            dofmap_args = "cell"
+
         # create a maps_required logical which we can use to add in
         # spacer comments if necessary
         maps_required = False
         for unique_fs in self.arguments.unique_fss:
             if self.field_on_space(unique_fs):
                 maps_required = True
+
         # function-space maps initialisation and their declarations
         if maps_required:
             parent.add(CommentGen(parent, ""))
@@ -1030,7 +1455,7 @@ class DynKern(Kern):
                 parent.add(AssignGen(parent, pointer=True, lhs=map_name,
                                      rhs=field.proxy_name_indexed +
                                      "%" + field.ref_name +
-                                     "%get_cell_dofmap(cell)"))
+                                     "%get_cell_dofmap("+dofmap_args+")"))
         if maps_required:
             parent.add(CommentGen(parent, ""))
         decl_map_names = []
@@ -1052,7 +1477,8 @@ class DynKern(Kern):
                                lhs=fs_descriptor.orientation_name,
                                rhs=field.proxy_name_indexed + "%" +
                                          field.ref_name +
-                                         "%get_cell_orientation(cell)"))
+                                         "%get_cell_orientation(" +
+                                         dofmap_args + ")"))
         if self._fs_descriptors.orientation:
             orientation_decl_names = []
             for orientation_name in self._fs_descriptors.orientation_names:
@@ -1061,66 +1487,9 @@ class DynKern(Kern):
             parent.add(DeclGen(parent, datatype="integer", pointer=True,
                                entity_decls=orientation_decl_names))
             parent.add(CommentGen(parent, ""))
-        # create the argument list
-        arglist = []
-        if self._arguments.has_operator:
-            # 0.5: provide cell position
-            arglist.append("cell")
-        # 1: provide mesh height
-        arglist.append("nlayers")
-        # 2: Provide data associated with fields in the order
-        #    specified in the metadata.  If we have a vector field
-        #    then generate the appropriate number of arguments.
-        for arg in self._arguments.args:
-            if arg.type == "gh_field":
-                dataref = "%data"
-                if arg.vector_size > 1:
-                    for idx in range(1, arg.vector_size+1):
-                        arglist.append(arg.proxy_name+"("+str(idx)+")"+dataref)
-                else:
-                    arglist.append(arg.proxy_name+dataref)
-            elif arg.type == "gh_operator":
-                arglist.append(arg.proxy_name_indexed+"%ncell_3d")
-                arglist.append(arg.proxy_name_indexed+"%local_stencil")
-            else:
-                raise GenerationError(
-                    "Unexpected arg type found in "
-                    "dynamo0p3.py:DynKern:gen_code(). Expected one of"
-                    " [gh_field, gh_operator] but found " + arg.type)
-        # 3: For each function space (in the order they appear in the
-        # metadata arguments)
-        for unique_fs in self.arguments.unique_fss:
-            # 3.1 Provide compulsory arguments common to operators and
-            # fields on a space
-            arglist.extend(self._fs_descriptors.compulsory_args(unique_fs))
-            # 3.1.1 Provide additional compulsory arguments if there
-            # is a field on this space
-            if self.field_on_space(unique_fs):
-                arglist.extend(self._fs_descriptors.compulsory_args_field(
-                               unique_fs))
-            # 3.2 Provide optional arguments
-            if self._fs_descriptors.exists(unique_fs):
-                descriptor = self._fs_descriptors.get_descriptor(unique_fs)
-                arglist.extend(descriptor.operator_names)
-            # 3.3 Fix for adding a boundary_dofs array to the boundary
-            # condition kernel (enforce_bc_kernel) arguments
-            if self.name.lower() == "enforce_bc_code" and \
-               unique_fs.lower() == "any_space_1":
-                arglist.append("boundary_dofs")
-                parent.add(DeclGen(parent, datatype="integer", pointer=True,
-                                   entity_decls=[
-                                       "boundary_dofs(:,:) => null()"]))
-                proxy_name = self._arguments.get_field("any_space_1").\
-                    proxy_name
-                new_parent, position = parent.start_parent_loop()
-                new_parent.add(AssignGen(new_parent, pointer=True,
-                                         lhs="boundary_dofs",
-                                         rhs=proxy_name +
-                                             "%vspace%get_boundary_dofs()"),
-                               position=["before", position])
-        # 4: Provide qr arguments if required
-        if self._qr_required:
-            arglist.extend(self._qr_args)
+
+        arglist = self._create_arg_list(parent)
+
         # generate the kernel call and associated use statement
         parent.add(CallGen(parent, self._name, arglist))
         parent.parent.add(UseGen(parent.parent, name=self._module_name,
@@ -1166,12 +1535,13 @@ class DynKern(Kern):
             parent.add(if_then)
             nlayers_name = self._name_space_manager.create_name(
                 root_name="nlayers", context="PSyVars", label="nlayers")
-            parent.add(UseGen(parent, name="enforce_bc_mod", only=True,
-                              funcnames=["enforce_bc_w2"]))
-            if_then.add(CallGen(if_then, "enforce_bc_w2",
-                                [nlayers_name, ndf_name, undf_name,
-                                 map_name, boundary_dofs_name,
-                                 enforce_bc_arg.proxy_name+"%data"]))
+            parent.add(UseGen(parent, name="enforce_bc_kernel_mod", only=True,
+                              funcnames=["enforce_bc_code"]))
+            if_then.add(CallGen(if_then, "enforce_bc_code",
+                                [nlayers_name,
+                                 enforce_bc_arg.proxy_name+"%data",
+                                 ndf_name, undf_name, map_name,
+                                 boundary_dofs_name]))
             parent.add(CommentGen(parent, ""))
 
 
@@ -1201,23 +1571,14 @@ class FSDescriptor(object):
             return False
 
     @property
-    def operator_names(self):
-        ''' Returns a list of the names of the operators associated
-        with this function space. The names are unique to the function
-        space, they are not the raw metadata values. '''
-        names = []
-        for operator_name in self._descriptor.operator_names:
-            if operator_name == "gh_orientation":
-                names.append(self.orientation_name)
-            elif operator_name == "gh_basis":
-                names.append(self.basis_name)
-            elif operator_name == "gh_diff_basis":
-                names.append(self.diff_basis_name)
-            else:
-                raise GenerationError(
-                    "FSDescriptor:operator_names: unsupported name '{0}' "
-                    "found".format(operator_name))
-        return names
+    def requires_orientation(self):
+        ''' Returns True if an orientation function is
+        associated with this function space, otherwise it returns
+        False. '''
+        if "gh_orientation" in self._descriptor.operator_names:
+            return True
+        else:
+            return False
 
     def name(self, operator_name):
         ''' Returns the names of the specified operator for this
@@ -1284,16 +1645,6 @@ class FSDescriptors(object):
         self._descriptors = []
         for descriptor in descriptors:
             self._descriptors.append(FSDescriptor(descriptor))
-
-    def compulsory_args(self, func_space):
-        ''' Args that all fields and operators require for the
-        specified function space. '''
-        return [self.ndf_name(func_space)]
-
-    def compulsory_args_field(self, func_space):
-        ''' Args that a field requires for the specified function
-        space in addition to the compulsory args. '''
-        return [self.undf_name(func_space), self.map_name(func_space)]
 
     def ndf_name(self, func_space):
         ''' Returns a ndf name for this function space. '''
@@ -1365,9 +1716,9 @@ class DynKernelArguments(Arguments):
         for arg in self._args:
             if arg.function_space == func_space:
                 return arg
-        raise GenerationError("DynKernelArguments:get_field: there is no"
-                              " field with function space {0)".
-                              format(func_space))
+        raise FieldNotFoundError("DynKernelArguments:get_field: there is no"
+                                 " field with function space {0}".
+                                 format(func_space))
 
     @property
     def has_operator(self):
@@ -1393,8 +1744,7 @@ class DynKernelArguments(Arguments):
         if mapping is not None:
             my_mapping = mapping
         else:
-            my_mapping = {"write": "gh_write", "read": "gh_read",
-                          "readwrite": "gh_rw", "inc": "gh_inc"}
+            my_mapping = FIELD_ACCESS_MAP
         arg = Arguments.iteration_space_arg(self, my_mapping)
         return arg
 
@@ -1415,6 +1765,10 @@ class DynKernelArgument(Argument):
         Argument.__init__(self, call, arg_info, arg.access)
         self._vector_size = arg.vector_size
         self._type = arg.type
+
+    @property
+    def descriptor(self):
+        return self._arg
 
     @property
     def ref_name(self):
@@ -1477,3 +1831,16 @@ class DynKernelArgument(Argument):
         ''' Returns the expected finite element function space for this
             argument as specified by the kernel argument metadata. '''
         return self._arg.function_space
+
+    @property
+    def intent(self):
+        if self.access == "gh_read":
+            return "in"
+        elif self.access == "gh_write":
+            return "out"
+        elif self.access == "gh_inc":
+            return "inout"
+        else:
+            raise GenerationError(
+                "Expecting argument access to be one of 'gh_read, gh_write, "
+                "gh_inc' but found '{0}'".format(self.access))
