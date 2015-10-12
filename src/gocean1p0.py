@@ -69,7 +69,6 @@ class GOPSy(PSy):
         Also overrides the PSy gen method so that we generate GOcean-
         specific PSy module code. '''
     def __init__(self, invoke_info):
-        self.use_raw_arrays = True
         PSy.__init__(self, invoke_info)
         self._invokes = GOInvokes(invoke_info.calls)
     @property
@@ -95,13 +94,16 @@ class GOPSy(PSy):
 class GOInvokes(Invokes):
     ''' The GOcean specific invokes class. This passes the GOcean specific
         invoke class to the base class so it creates the one we require. '''
-    def __init__(self, alg_calls):
+    def __init__(self, alg_calls, raw_arrays=True):
         if False:
             self._0_to_n = GOInvoke(None, None) # for pyreverse
-        # ARPDBG pass GOInvoke to generate middle layer that doesn't
-        # have additional 'unpacking' subroutine (i.e. PSY-layer routine
-        # uses field objects [Fortran derived types]).
-        Invokes.__init__(self, alg_calls, GOInvokeArrays)
+        if raw_arrays:
+            Invokes.__init__(self, alg_calls, GOInvokeArrays)
+        else:
+            # Pass GOInvoke to generate middle layer that doesn't
+            # have additional 'unpacking' subroutine (i.e. PSY-layer routine
+            # uses field objects [Fortran derived types]).
+            Invokes.__init__(self, alg_calls, GOInvoke)
 
         index_offsets = []
         # Loop over all of the kernels in all of the invoke() calls

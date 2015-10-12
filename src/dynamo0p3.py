@@ -440,6 +440,7 @@ class DynInvoke(Invoke):
     def __init__(self, alg_invocation, idx):
         if False:
             self._schedule = DynSchedule(None)  # for pyreverse
+        self.use_raw_arrays = True
         Invoke.__init__(self, alg_invocation, idx, DynSchedule)
         # check whether we have more than one kernel call within this
         # invoke which specifies any_space. This is not supported at
@@ -641,7 +642,7 @@ class DynInvoke(Invoke):
             AllocateGen, DeallocateGen, CallGen, CommentGen
         # create a namespace manager so we can avoid name clashes
         self._name_space_manager = NameSpaceFactory().create()
-        # create the subroutine
+        # create the 1st-level PSy subroutine
         invoke_sub = SubroutineGen(parent, name=self.name,
                                    args=self.psy_unique_var_names +
                                    self._psy_unique_qr_vars)
@@ -849,11 +850,40 @@ class DynInvoke(Invoke):
                     invoke_sub.add(CallGen(invoke_sub, name=name + "%" +
                                    arg.ref_name +
                                    "%compute_diff_basis_function", args=args))
-        invoke_sub.add(CommentGen(invoke_sub, ""))
-        invoke_sub.add(CommentGen(invoke_sub, " Call our kernels"))
-        invoke_sub.add(CommentGen(invoke_sub, ""))
-        # add content from the schedule
-        self.schedule.gen_code(invoke_sub)
+
+        if self.use_raw_arrays:
+            # Create the call to the 2nd level of the PSy layer
+            # that deals only with intrinsic Fortran types.
+            # Therefore, all scalar quantities etc. must be passed down
+            # here.
+            # TODO - declare and assign a value to ncells
+            ncells_name = "ncells"
+            arg_list = [ncells_name, nlayers_name] + var_list
+            for arg in self.psy_unique_vars:
+                arg_list.append(arg.proxy_name + "%data")
+
+            invoke_sub.add(CallGen(invoke_sub, self.name+"_arrays",
+                                   arg_list))
+
+            # Create the subroutine that contains the 2nd level of the
+            # PSy layer. This routine contains no references to
+            # Fortran derived types.
+            invoke_sub_arrays = SubroutineGen(parent,
+                                              name=self.name+"_arrays",
+                                              args=var_list+\
+                                              self.psy_unique_var_names+\
+                                              self._psy_unique_qr_vars)
+            parent.add(invoke_sub_arrays)
+
+            self.schedule.gen_code(invoke_sub_arrays)
+
+        else:
+            invoke_sub.add(CommentGen(invoke_sub, ""))
+            invoke_sub.add(CommentGen(invoke_sub, " Call our kernels"))
+            invoke_sub.add(CommentGen(invoke_sub, ""))
+            # add content from the schedule
+            self.schedule.gen_code(invoke_sub)
+
         if self.qr_required:
             # deallocate all allocated basis function arrays
             invoke_sub.add(CommentGen(invoke_sub, ""))
@@ -879,12 +909,45 @@ class DynInvoke(Invoke):
         parent.add(invoke_sub)
 
 
+    def gen_code_arrays(self, parent):
+
+        from f2pygen import SubroutineGen, CallGen
+        # create the subroutine that will convert from Fortran derived
+        # types to raw arrays
+        invoke_sub = SubroutineGen(parent, name=self.name,
+                                   args=self.psy_unique_var_names +
+                                   self._psy_unique_qr_vars)
+        parent.add(invoke_sub)
+
+        # Call the subroutine that uses only intrinisc Fortran types
+        arg_list = []
+        invoke_sub.add(CallGen(invoke_sub, self.name+"_arrays",
+                               arg_list))
+
+        # Create the subroutine that contains the middle, PSy layer. This
+        # routine contains no references to Fortran derived types.
+        # Therefore, if any of the kernels that are a part of this Invoke
+        # require a grid property, that property must be passed down
+        # here.
+        array_bound_args = [""]
+        invoke_sub_arrays = SubroutineGen(parent,
+                                          name=self.name+"_arrays",
+                                          args=array_bound_args+\
+                                          self.psy_unique_var_names+\
+                                          self._psy_unique_qr_vars)
+        parent.add(invoke_sub_arrays)
+
+        self.schedule.gen_code(invoke_sub_arrays)
+
+
 class DynSchedule(Schedule):
     ''' The Dynamo specific schedule class. This passes the Dynamo
     specific loop and infrastructure classes to the base class so it
     creates the ones we require. '''
 
     def __init__(self, arg):
+
+        self.use_raw_arrays = True
         Schedule.__init__(self, DynLoop, DynInf, arg)
 
 
@@ -962,12 +1025,17 @@ class DynKern(Kern):
         if False:
             self._arguments = DynKernelArguments(None, None)  # for pyreverse
 
-    def load(self, call, parent=None):
+    def load(self, call, parent=None, use_raw_arrays=False):
         ''' sets up kernel information with the call object which is
         created by the parser. This object includes information about
         the invoke call and the associated kernel'''
         self._setup_qr(call.ktype.func_descriptors)
         self._setup(call.ktype, call.module_name, call.args, parent)
+
+        # Store whether or not the call to this kernel will be passing
+        # raw arrays (as opposed to having to dereference field
+        # objects)
+        self._use_raw_arrays = use_raw_arrays
 
     def load_meta(self, ktype):
         ''' sets up kernel information with the kernel type object
@@ -1106,7 +1174,7 @@ class DynKern(Kern):
                     return True
         return False
 
-    def _create_arg_list(self, parent, my_type="call"):
+    def _create_arg_list(self, parent, my_type="call", raw_arrays=False):
         ''' creates the kernel call or kernel stub subroutine argument
         list. For kernel stubs it also creates the data
         declarations. '''
@@ -1115,6 +1183,10 @@ class DynKern(Kern):
             # add in any required USE associations
             parent.add(UseGen(parent, name="constants_mod", only="True",
                               funcnames=["r_def"]))
+        if raw_arrays:
+            name_sep = "_"
+        else:
+            name_sep = "%"
         # create the argument list
         arglist = []
         if self._arguments.has_operator:
@@ -1136,7 +1208,7 @@ class DynKern(Kern):
         for arg in self._arguments.args:
             undf_name = self._fs_descriptors.undf_name(arg.function_space)
             if arg.type == "gh_field":
-                dataref = "%data"
+                dataref = name_sep+"data"
                 if arg.vector_size > 1:
                     for idx in range(1, arg.vector_size+1):
                         if my_type == "subroutine":
@@ -1199,8 +1271,10 @@ class DynKern(Kern):
                                        "," + size,
                                        intent=intent, entity_decls=[text]))
                 else:
-                    arglist.append(arg.proxy_name_indexed+"%ncell_3d")
-                    arglist.append(arg.proxy_name_indexed+"%local_stencil")
+                    arglist.append(arg.proxy_name_indexed+name_sep+
+                                   "ncell_3d")
+                    arglist.append(arg.proxy_name_indexed+name_sep+
+                                   "local_stencil")
             else:
                 raise GenerationError(
                     "Unexpected arg type found in "
@@ -1384,6 +1458,10 @@ class DynKern(Kern):
         parent.add(DeclGen(parent, datatype="integer",
                            entity_decls=["cell"]))
 
+        # The list of arguments that we will pass to the second-level
+        # PSy layer (that deals only with intrinsic Fortran types)
+        deref_arg_names = []
+
         # If this kernel is being called from within a coloured
         # loop then we have to look-up the colour map
         if self.is_coloured():
@@ -1414,6 +1492,10 @@ class DynKern(Kern):
                            position=["before", position])
             new_parent.add(CommentGen(new_parent, ""),
                            position=["before", position])
+
+            deref_arg_list.append("ncolour")
+            deref_arg_list.append("ncp_colour")
+            deref_arg_list.append("cmap")
 
             # We must pass the colour map to the dofmap/orientation
             # lookup rather than just the cell
@@ -1456,6 +1538,7 @@ class DynKern(Kern):
                                      rhs=field.proxy_name_indexed +
                                      "%" + field.ref_name +
                                      "%get_cell_dofmap("+dofmap_args+")"))
+                deref_arg_names.append(map_name)
         if maps_required:
             parent.add(CommentGen(parent, ""))
         decl_map_names = []
@@ -1479,6 +1562,7 @@ class DynKern(Kern):
                                          field.ref_name +
                                          "%get_cell_orientation(" +
                                          dofmap_args + ")"))
+                    deref_arg_names.append(fs_descriptor.orientation_name)
         if self._fs_descriptors.orientation:
             orientation_decl_names = []
             for orientation_name in self._fs_descriptors.orientation_names:

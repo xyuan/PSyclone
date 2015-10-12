@@ -99,6 +99,7 @@ class PSy(object):
 
         self._name = invoke_info.name
         self._invokes = None
+        self.use_raw_arrays = True
 
     def __str__(self):
         return "PSy"
