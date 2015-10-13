@@ -608,6 +608,18 @@ class DynInvoke(Invoke):
                 "undf_name makes no sense if there are no kernel calls")
         return kern_calls[0].fs_descriptors.undf_name(func_space)
 
+    def dofmap_name(self, func_space):
+        ''' A convenience method that returns a dof-map name for
+        a particular function space. These names are specified in
+        function_space_descriptors objects contained within Kernel
+        objects. The first Kernel in the invoke is used to return the
+        name. If no Kernel exist in this invoke an error is thrown. '''
+        kern_calls = self.schedule.kern_calls()
+        if len(kern_calls) == 0:
+            raise GenerationError(
+                "dofmap_name makes no sense if there are no kernel calls")
+        return kern_calls[0].fs_descriptors.map_name(func_space)
+
     def get_operator_name(self, operator_name, function_space):
         ''' A convenience method that returns an operator name for a
         particular operator on a particular function space. These
@@ -739,6 +751,7 @@ class DynInvoke(Invoke):
         operator_declarations = []
         var_list = []
         var_dim_list = []
+        decl_map_names = []
         # loop over all function spaces used by the kernels in this invoke
         for function_space in self.unique_fss():
             # Initialise information associated with this function space
@@ -763,6 +776,11 @@ class DynInvoke(Invoke):
                 var_list.append(undf_name)
                 invoke_sub.add(AssignGen(invoke_sub, lhs=undf_name,
                                rhs=name+"%"+arg.ref_name+"%get_undf()"))
+                # A map is required as there is a field on this space
+                dmap_name = self.dofmap_name(function_space)
+                decl_map_names.append(dmap_name+"(:,:) => null()")
+                invoke_sub.add(AssignGen(invoke_sub, lhs=dmap_name,
+                                         rhs=name+"%"+arg.ref_name+"%get_dofmap()"))
             if self.basis_required(function_space):
                 # initialise 'dim' variable for this function space
                 # and add name to list to declare later
@@ -808,6 +826,10 @@ class DynInvoke(Invoke):
                                    allocatable=True,
                                    kind="r_def",
                                    entity_decls=operator_declarations))
+        if len(decl_map_names) > 0:
+            invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
+                                   pointer=True,
+                                   entity_decls=decl_map_names))
 
         if self.is_coloured():
             # Add declarations of the colour map and array holding the
@@ -857,41 +879,45 @@ class DynInvoke(Invoke):
                                    arg.ref_name +
                                    "%compute_diff_basis_function", args=args))
 
-        if self.use_raw_arrays:
-            # Create the call to the 2nd level of the PSy layer
-            # that deals only with intrinsic Fortran types.
-            # Therefore, all scalar quantities etc. must be passed down
-            # here.
-            for call in self.schedule.calls():
-                for arg in call.arguments.args:
-                    if arg.text is not None:
-                        pass #ARPDBG
+        # Create the call to the 2nd level of the PSy layer
+        # that deals only with intrinsic Fortran types.
+        # Therefore, all scalar quantities etc. must be passed down
+        # here.
 
-            arg_list = [ncells_name, nlayers_name] + var_list
-            for arg in self.psy_unique_vars:
-                arg_list.append(arg.proxy_name + "%data")
+        # We must therefore loop over all of the kernel calls in this
+        # Schedule and collect the arguments that they require.
+        # Some of these arguments will have to be created as local
+        # variables in PSy1. We therefore need declarations for them.
+        # An example of this is the dof map. This is looked-up
+        # in the PSy layer and then passed as an integer array down to the
+        # kernel.
+        kernels = self.schedule.walk(self.schedule.children, DynKern)
+        arglist = []
+        for kernel in kernels:
+            args = kernel.create_arg_list_raw(invoke_sub, "subroutine")
+            arglist += args
 
-            invoke_sub.add(CallGen(invoke_sub, self.name+"_arrays",
-                                   arg_list))
+        arg_list = [ncells_name, nlayers_name] + arglist
+        for arg in self.psy_unique_vars:
+            arg_list.append(arg.proxy_name + "%data")
 
-            # Create the subroutine that contains the 2nd level of the
-            # PSy layer. This routine contains no references to
-            # Fortran derived types.
-            invoke_sub_arrays = SubroutineGen(parent,
-                                              name=self.name+"_arrays",
-                                              args= [ncells_name, nlayers_name] +\
-                                              self.psy_unique_var_names+\
-                                              self._psy_unique_qr_vars)
-            parent.add(invoke_sub_arrays)
+        invoke_sub.add(CommentGen(invoke_sub, ""))
+        invoke_sub.add(CommentGen(invoke_sub, " Call de-referenced PSy layer"))
+        invoke_sub.add(CommentGen(invoke_sub, ""))
+        invoke_sub.add(CallGen(invoke_sub, self.name+"_arrays",
+                               arg_list))
 
-            self.schedule.gen_code(invoke_sub_arrays)
+        # Create the subroutine that contains the 2nd level of the
+        # PSy layer. This routine contains no references to
+        # Fortran derived types.
+        invoke_sub_arrays = SubroutineGen(parent,
+                                          name=self.name+"_arrays",
+                                          args= [ncells_name, nlayers_name] +\
+                                          self.psy_unique_var_names+\
+                                          self._psy_unique_qr_vars)
 
-        else:
-            invoke_sub.add(CommentGen(invoke_sub, ""))
-            invoke_sub.add(CommentGen(invoke_sub, " Call our kernels"))
-            invoke_sub.add(CommentGen(invoke_sub, ""))
-            # add content from the schedule
-            self.schedule.gen_code(invoke_sub)
+        # Add content from the schedule
+        self.schedule.gen_code(invoke_sub_arrays)
 
         if self.qr_required:
             # deallocate all allocated basis function arrays
@@ -916,6 +942,7 @@ class DynInvoke(Invoke):
         invoke_sub.add(CommentGen(invoke_sub, ""))
         # finally, add me to my parent
         parent.add(invoke_sub)
+        parent.add(invoke_sub_arrays)
 
 
     def gen_code_arrays(self, parent):
@@ -1422,7 +1449,7 @@ class DynKern(Kern):
                                    entity_decls=[self._qr_args["v"]]))
         return arglist
 
-    def _create_arg_list_raw(self, parent, my_type="call"):
+    def create_arg_list_raw(self, parent, my_type="call"):
         ''' creates the kernel call or kernel stub subroutine argument
         list. For kernel stubs it also creates the data
         declarations. '''
@@ -1434,17 +1461,6 @@ class DynKern(Kern):
         name_sep = "_"
         # create the argument list
         arglist = []
-        if self._arguments.has_operator:
-            # 0.5: provide cell position
-            arglist.append("cell")
-            if my_type == "subroutine":
-                parent.add(DeclGen(parent, datatype="integer", intent="in",
-                                   entity_decls=["cell"]))
-        # 1: provide mesh height
-        arglist.append("nlayers")
-        if my_type == "subroutine":
-            parent.add(DeclGen(parent, datatype="integer", intent="in",
-                               entity_decls=["nlayers"]))
         # 2: Provide data associated with fields in the order
         #    specified in the metadata.  If we have a vector field
         #    then generate the appropriate number of arguments.
@@ -1701,12 +1717,12 @@ class DynKern(Kern):
         from f2pygen import CallGen, DeclGen, AssignGen, UseGen, CommentGen, \
             IfThenGen, SubroutineGen
 
-        parent.add(DeclGen(parent, datatype="integer",
-                           entity_decls=["cell"]))
-
-        # The list of arguments that we will pass to the second-level
-        # PSy layer (that deals only with intrinsic Fortran types)
-        deref_arg_names = []
+        # Although we now have two levels to the PSy layer, in the Abstract
+        # Syntax tree these levels are siblings.
+        # TODO work out how to add calls to PSy1 rather than PSy2
+        grandparent = parent.parent
+        grandparent.add(DeclGen(grandparent, datatype="integer",
+                                entity_decls=["cell"]))
 
         # If this kernel is being called from within a coloured
         # loop then we have to look-up the colour map
@@ -1721,27 +1737,23 @@ class DynKern(Kern):
                 # no field object with INC access
                 arg = self.written_field
 
-            new_parent, position = parent.start_parent_loop()
+            new_grandparent, position = grandparent.start_parent_loop()
             # Add the look-up of the colouring map for this kernel
             # call
-            new_parent.add(CommentGen(new_parent, ""),
+            new_grandparent.add(CommentGen(new_grandparent, ""),
                            position=["before", position])
-            new_parent.add(CommentGen(new_parent, " Look-up colour map"),
+            new_grandparent.add(CommentGen(new_grandparent, " Look-up colour map"),
                            position=["before", position])
-            new_parent.add(CommentGen(new_parent, ""),
+            new_grandparent.add(CommentGen(new_grandparent, ""),
                            position=["before", position])
             name = arg.proxy_name_indexed + \
                 "%" + arg.ref_name + "%get_colours"
-            new_parent.add(CallGen(new_parent,
+            new_grandparent.add(CallGen(new_grandparent,
                                    name=name,
                                    args=["ncolour", "ncp_colour", "cmap"]),
                            position=["before", position])
-            new_parent.add(CommentGen(new_parent, ""),
+            new_grandparent.add(CommentGen(new_grandparent, ""),
                            position=["before", position])
-
-            deref_arg_list.append("ncolour")
-            deref_arg_list.append("ncp_colour")
-            deref_arg_list.append("cmap")
 
             # We must pass the colour map to the dofmap/orientation
             # lookup rather than just the cell
@@ -1774,19 +1786,18 @@ class DynKern(Kern):
 
         # function-space maps initialisation and their declarations
         if maps_required:
-            parent.add(CommentGen(parent, ""))
+            grandparent.add(CommentGen(grandparent, ""))
         for unique_fs in self.arguments.unique_fss:
             if self.field_on_space(unique_fs):
                 # A map is required as there is a field on this space
                 map_name = self._fs_descriptors.map_name(unique_fs)
                 field = self._arguments.get_field(unique_fs)
-                parent.add(AssignGen(parent, pointer=True, lhs=map_name,
+                grandparent.add(AssignGen(grandparent, pointer=True, lhs=map_name,
                                      rhs=field.proxy_name_indexed +
                                      "%" + field.ref_name +
                                      "%get_cell_dofmap("+dofmap_args+")"))
-                deref_arg_names.append(map_name)
         if maps_required:
-            parent.add(CommentGen(parent, ""))
+            grandparent.add(CommentGen(grandparent, ""))
         decl_map_names = []
         for unique_fs in self.arguments.unique_fss:
             if self.field_on_space(unique_fs):
@@ -1794,7 +1805,7 @@ class DynKern(Kern):
                 map_name = self._fs_descriptors.map_name(unique_fs)
                 decl_map_names.append(map_name+"(:) => null()")
         if len(decl_map_names) > 0:
-            parent.add(DeclGen(parent, datatype="integer", pointer=True,
+            grandparent.add(DeclGen(grandparent, datatype="integer", pointer=True,
                                entity_decls=decl_map_names))
         # orientation arrays initialisation and their declarations
         for unique_fs in self.arguments.unique_fss:
@@ -1802,27 +1813,26 @@ class DynKern(Kern):
                 fs_descriptor = self._fs_descriptors.get_descriptor(unique_fs)
                 if fs_descriptor.orientation:
                     field = self._arguments.get_field(unique_fs)
-                    parent.add(AssignGen(parent, pointer=True,
+                    grandparent.add(AssignGen(grandparent, pointer=True,
                                lhs=fs_descriptor.orientation_name,
                                rhs=field.proxy_name_indexed + "%" +
                                          field.ref_name +
                                          "%get_cell_orientation(" +
                                          dofmap_args + ")"))
-                    deref_arg_names.append(fs_descriptor.orientation_name)
         if self._fs_descriptors.orientation:
             orientation_decl_names = []
             for orientation_name in self._fs_descriptors.orientation_names:
                 orientation_decl_names.append(orientation_name +
                                               "(:) => null()")
-            parent.add(DeclGen(parent, datatype="integer", pointer=True,
+            grandparent.add(DeclGen(grandparent, datatype="integer", pointer=True,
                                entity_decls=orientation_decl_names))
-            parent.add(CommentGen(parent, ""))
+            grandparent.add(CommentGen(grandparent, ""))
 
-        arglist = self._create_arg_list_raw(parent)
+        arglist = self.create_arg_list_raw(grandparent)
 
         # generate the kernel call and associated use statement
         parent.add(CallGen(parent, self._name, arglist))
-        parent.parent.add(UseGen(parent.parent, name=self._module_name,
+        grandparent.parent.add(UseGen(grandparent.parent, name=self._module_name,
                                  only=True, funcnames=[self._name]))
         # 5: Fix for boundary_dofs array in matrix_vector_mm_code
         if self.name == "matrix_vector_mm_code":
@@ -1842,37 +1852,37 @@ class DynKern(Kern):
             fs_name = self._name_space_manager.create_name(root_name="fs")
             boundary_dofs_name = self._name_space_manager.create_name(
                 root_name="boundary_dofs_"+space_name)
-            parent.add(UseGen(parent, name="function_space_mod",
-                              only=True, funcnames=[space_name]))
-            parent.add(DeclGen(parent, datatype="integer", pointer=True,
-                               entity_decls=[boundary_dofs_name +
+            grandparent.add(UseGen(grandparent, name="function_space_mod",
+                                only=True, funcnames=[space_name]))
+            grandparent.add(DeclGen(grandparent, datatype="integer", pointer=True,
+                                 entity_decls=[boundary_dofs_name +
                                              "(:,:) => null()"]))
-            parent.add(DeclGen(parent, datatype="integer",
-                               entity_decls=[fs_name]))
-            new_parent, position = parent.start_parent_loop()
-            new_parent.add(AssignGen(new_parent, lhs=fs_name,
+            grandparent.add(DeclGen(grandparent, datatype="integer",
+                                 entity_decls=[fs_name]))
+            new_grandparent, position = grandparent.start_parent_loop()
+            new_grandparent.add(AssignGen(new_grandparent, lhs=fs_name,
                                      rhs=reference_arg.name +
                                      "%which_function_space()"),
-                           position=["before", position])
-            if_then = IfThenGen(new_parent, fs_name+" .eq. "+space_name)
-            new_parent.add(if_then, position=["before", position])
+                             position=["before", position])
+            if_then = IfThenGen(new_grandparent, fs_name+" .eq. "+space_name)
+            new_grandparent.add(if_then, position=["before", position])
             if_then.add(AssignGen(if_then, pointer=True,
                                   lhs=boundary_dofs_name,
                                   rhs=w2_proxy_name +
                                   "%vspace%get_boundary_dofs()"))
-            parent.add(CommentGen(parent, ""))
-            if_then = IfThenGen(parent, fs_name+" .eq. "+space_name)
-            parent.add(if_then)
+            grandparent.add(CommentGen(grandparent, ""))
+            if_then = IfThenGen(grandparent, fs_name+" .eq. "+space_name)
+            grandparent.add(if_then)
             nlayers_name = self._name_space_manager.create_name(
                 root_name="nlayers", context="PSyVars", label="nlayers")
-            parent.add(UseGen(parent, name="enforce_bc_kernel_mod", only=True,
+            grandparent.add(UseGen(grandparent, name="enforce_bc_kernel_mod", only=True,
                               funcnames=["enforce_bc_code"]))
             if_then.add(CallGen(if_then, "enforce_bc_code",
                                 [nlayers_name,
                                  enforce_bc_arg.proxy_name+"%data",
                                  ndf_name, undf_name, map_name,
                                  boundary_dofs_name]))
-            parent.add(CommentGen(parent, ""))
+            grandparent.add(CommentGen(grandparent, ""))
 
 
 class FSDescriptor(object):
