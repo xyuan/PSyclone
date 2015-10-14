@@ -681,18 +681,29 @@ class DynInvoke(Invoke):
                                    args=self.psy_unique_var_names +
                                    self._psy_unique_qr_vars)
 
-        # The list of args that the PSy2 subroutine will have
-        psy2_scalar_list = []
-        psy2_field_list = []
-        psy2_map_list = []
+        # The list of args that the PSy2 subroutine will be passed
+        psy2_arg_list = []
+        # A list of declaration objects that will be added to the PSy2
+        # object once it is created. We can't create it straight away
+        # because we first have to work out what its arguments
+        # will be.
+        # TODO because we are creating these declarations before
+        # the object to which they belong, we are giving their
+        # parent as 'invoke_sub'. What are the consequences of this?
         psy2_declarations = []
 
-        # add the subroutine argument declarations fields
-        field_declarations = self.unique_declarations("gh_field")
-        if len(field_declarations) > 0:
+        # add the subroutine argument declarations for the fields
+        field_args = self.unique_args("gh_field")
+        for fld in field_args:
             invoke_sub.add(TypeDeclGen(invoke_sub, datatype="field_type",
-                                       entity_decls=field_declarations,
+                                       entity_decls=[fld],
                                        intent="inout"))
+            name = self.undf_name(field_args[fld].function_space)
+            psy2_declarations.append(DeclGen(invoke_sub, datatype="real",
+                                             kind="r_def",
+                                             intent="inout",
+                                             dimension=name,
+                                             entity_decls=[fld]))
         # operators
         operator_declarations = self.unique_declarations("gh_operator")
         if len(operator_declarations) > 0:
@@ -739,8 +750,18 @@ class DynInvoke(Invoke):
         ncells_name = self._name_space_manager.create_name(
             root_name="ncells", context="PSyVars", label="ncells")
 
-        psy2_scalar_list.extend([ncells_name, nlayers_name])
+        # Add these to the list of arguments we will pass down to PSy2
+        psy2_arg_list.extend([ncells_name, nlayers_name])
 
+        # Create declarations for them both in PSy1 and PSy2. We insert
+        # them at index 0 so that they are declared before any arrays
+        # that may use them to specify extents.
+        invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
+                               entity_decls = [ncells_name, nlayers_name]))
+        psy2_declarations.insert(0, DeclGen(invoke_sub, datatype="integer",
+                                            intent="in",
+                                            entity_decls = [ncells_name,
+                                                            nlayers_name]))
         invoke_sub.add(AssignGen(invoke_sub, lhs=nlayers_name,
                        rhs=first_var.proxy_name_indexed + "%" +
                        first_var.ref_name + "%get_nlayers()"))
@@ -760,16 +781,21 @@ class DynInvoke(Invoke):
 
         for op in op_list.keys():
             ncell3d_name = op + "_ncell_3d"
-            psy2_scalar_list.append(ncell3d_name)
+            psy2_arg_list.append(ncell3d_name)
             invoke_sub.add(AssignGen(invoke_sub, lhs=ncell3d_name,
                                      rhs=op+"%ncell_3d"))
             stencil_name = op + "_local_stencil"
             invoke_sub.add(AssignGen(invoke_sub, lhs=stencil_name,
                                      rhs=op+"%local_stencil"))
+            fspace = op_list[op].function_space
+            name = self.ndf_name(fspace)
+            psy2_declarations.append(DeclGen(invoke_sub, datatype="real",
+                                             kind="r_def", pointer=True,
+                                             dimension=name+","+name+","+ncell3d_name,
+                                             entity_decls=[stencil_name]))
             invoke_sub.add(DeclGen(invoke_sub, datatype="real",
                                    kind="r_def", pointer=True,
-                                   dimension="ARPDBGndf,ndf,"+ncell3d_name,
-                                   entity_decls=[stencil_name]))
+                                   entity_decls=[stencil_name+"(:,:,:) => null()"]))
 
         if len(op_proxy_decs) > 0:
             invoke_sub.add(TypeDeclGen(invoke_sub,
@@ -825,7 +851,7 @@ class DynInvoke(Invoke):
             # list to declare later
             ndf_name = self.ndf_name(function_space)
             var_list.append(ndf_name)
-            psy2_scalar_list.append(ndf_name)
+            psy2_arg_list.append(ndf_name)
 
             invoke_sub.add(AssignGen(invoke_sub, lhs=ndf_name,
                                      rhs=name+"%"+arg.ref_name+"%get_ndf()"))
@@ -838,7 +864,7 @@ class DynInvoke(Invoke):
                 # Append this name to the list of variables that we pass
                 # down to PSy2
                 var_list.append(undf_name)
-                psy2_scalar_list.append(undf_name)
+                psy2_arg_list.append(undf_name)
                 invoke_sub.add(AssignGen(invoke_sub, lhs=undf_name,
                                rhs=name+"%"+arg.ref_name+"%get_undf()"))
                 # A map is required as there is a field on this space
@@ -846,7 +872,7 @@ class DynInvoke(Invoke):
                 # API but I think it may have to be implemented...
                 dmap_name = self.dofmap_name(function_space)
                 decl_map_names.append(dmap_name+"(:,:) => null()")
-                psy2_scalar_list.append(dmap_name)
+                psy2_arg_list.append(dmap_name)
 
                 invoke_sub.add(AssignGen(invoke_sub, lhs=dmap_name,
                                          rhs=name+"%"+arg.ref_name+"%get_dofmap()"))
@@ -855,7 +881,7 @@ class DynInvoke(Invoke):
                 # and add name to list to declare later
                 lhs = "dim_"+function_space
                 var_dim_list.append(lhs)
-                psy2_scalar_list.append(lhs)
+                psy2_arg_list.append(lhs)
 
                 rhs = name+"%"+arg.ref_name+"%get_dim_space()"
                 invoke_sub.add(AssignGen(invoke_sub, lhs=lhs, rhs=rhs))
@@ -872,7 +898,7 @@ class DynInvoke(Invoke):
                 # space and add name to list to declare later
                 lhs = "diff_dim_"+function_space
                 var_dim_list.append(lhs)
-                psy2_scalar_list.append(lhs)
+                psy2_arg_list.append(lhs)
                 rhs = name+"%"+arg.ref_name+"%get_dim_space_diff()"
                 invoke_sub.add(AssignGen(invoke_sub, lhs=lhs, rhs=rhs))
                 # allocate the diff basis function variable
@@ -958,7 +984,7 @@ class DynInvoke(Invoke):
 
         # Add the arrays containing the field data to the argument list
         arg_list = []
-        arg_list.extend(psy2_scalar_list)
+        arg_list.extend(psy2_arg_list)
         for arg in self.psy_unique_vars:
             arg_list.append(arg.proxy_name + "%data")
 
@@ -974,21 +1000,19 @@ class DynInvoke(Invoke):
         # Fortran derived types
         invoke_sub_arrays = SubroutineGen(parent,
                                           name=self.name+"_arrays",
-                                          args= psy2_scalar_list +\
+                                          args= psy2_arg_list +\
                                           self.psy_unique_var_names+\
                                           self._psy_unique_qr_vars)
 
-        invoke_sub_arrays.add(DeclGen(invoke_sub_arrays, datatype="integer",
-                                      intent="in",
-                                      entity_decls=psy2_scalar_list))
-        invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
-                               entity_decls=psy2_scalar_list))
-
-        if len(field_declarations) > 0:
-            invoke_sub_arrays.add(DeclGen(invoke_sub, datatype="real",
-                                          kind="r_def", dimension="XXX",
-                                          entity_decls=field_declarations,
-                                          intent="inout"))
+#        if len(field_declarations) > 0:
+#            invoke_sub_arrays.add(DeclGen(invoke_sub, datatype="real",
+#                                          kind="r_def", dimension="XXX",
+#                                          entity_decls=field_declarations,
+#                                          intent="inout"))
+        # Add the declarations we generated while looping over all of the
+        # unique args to this Invoke
+        for decln in psy2_declarations:
+            invoke_sub_arrays.add(decln)
 
         # Add content from the schedule
         self.schedule.gen_code(invoke_sub_arrays)
