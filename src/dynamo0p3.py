@@ -601,6 +601,18 @@ class DynInvoke(Invoke):
         # function space
         return False
 
+    def bc_dofs_required(self):
+        '''Returns the first kernel in this schedule that requires the
+        boundary-condition dofs. Returns None if no BCs are
+        required.
+
+        '''
+        # look in each kernel
+        for kern_call in self.schedule.kern_calls():
+            if kern_call.name == "matrix_vector_mm_code":
+                return kern_call
+        return None
+
     def is_coloured(self):
         ''' Returns true if at least one of the loops in the
         schedule of this invoke has been coloured '''
@@ -676,7 +688,8 @@ class DynInvoke(Invoke):
         layer). This consists of the PSy invocation subroutine and the
         declaration of its arguments. '''
         from f2pygen import SubroutineGen, TypeDeclGen, AssignGen, DeclGen, \
-            AllocateGen, DeallocateGen, CallGen, CommentGen
+            AllocateGen, DeallocateGen, CallGen, CommentGen, UseGen, \
+            IfThenGen
         # create a namespace manager so we can avoid name clashes
         self._name_space_manager = NameSpaceFactory().create()
         # create the 1st-level PSy subroutine
@@ -992,6 +1005,67 @@ class DynInvoke(Invoke):
                     invoke_sub.add(CallGen(invoke_sub, name=name + "%" +
                                    arg.ref_name +
                                    "%compute_diff_basis_function", args=args))
+
+        bc_kern = self.bc_dofs_required()
+        if bc_kern:
+            # One or more kernels require the application of boundary
+            # conditions
+            # In matrix_vector_mm_code, all fields are on the same
+            # (unknown) space. Therefore we can use any field to
+            # dereference. We choose the 2nd one as that is what is
+            # done in the manual implementation.
+            reference_arg = bc_kern.arguments.args[1]
+            enforce_bc_arg = bc_kern.arguments.args[0]
+            space_name = "w2"
+            kern_func_space_name = enforce_bc_arg.function_space
+            ndf_name = bc_kern.fs_descriptors.ndf_name(kern_func_space_name)
+            undf_name = bc_kern.fs_descriptors.undf_name(kern_func_space_name)
+            map_name = bc_kern.fs_descriptors.map_name(kern_func_space_name)
+            w2_proxy_name = reference_arg.proxy_name
+
+            # Variable to hold the name of the function space. We supply 
+            # a context and a label so that we can look-up this name
+            # in the DynKern::gen_code() method
+            fs_name = self._name_space_manager.create_name(root_name="fs",
+                                                           context="psy2",
+                                                           label="bc_fs_name")
+            psy2_caller_args.append(fs_name)
+            psy2_dummy_args.append(fs_name)
+
+            # Again, we supply a context and a label so that we can
+            # look-up this name in the DynKern::gen_code() method
+            boundary_dofs_name = self._name_space_manager.create_name(
+                root_name="boundary_dofs_"+space_name,
+                context="psy2",
+                label="bc_dofs_name")
+            invoke_sub.add(UseGen(invoke_sub, name="function_space_mod",
+                                only=True, funcnames=[space_name]))
+            invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
+                                   pointer=True,
+                                   entity_decls=[boundary_dofs_name +
+                                                 "(:,:) => null()"]))
+            psy2_declarations.append(DeclGen(invoke_sub, datatype="integer",
+                                             intent="in",
+                                             dimension=ndf_name+",2",
+                                             entity_decls=[boundary_dofs_name]))
+            psy2_caller_args.append(boundary_dofs_name)
+            psy2_dummy_args.append(boundary_dofs_name)
+
+            invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
+                                   entity_decls=[fs_name]))
+            psy2_declarations.append(DeclGen(invoke_sub, datatype="integer",
+                                             intent="in",
+                                             entity_decls=[fs_name]))
+            invoke_sub.add(AssignGen(invoke_sub, lhs=fs_name,
+                                     rhs=reference_arg.name +
+                                     "%which_function_space()"))
+            if_then = IfThenGen(invoke_sub, fs_name+" .eq. "+space_name)
+            invoke_sub.add(if_then)
+            if_then.add(AssignGen(if_then, pointer=True,
+                                  lhs=boundary_dofs_name,
+                                  rhs=w2_proxy_name +
+                                  "%vspace%get_boundary_dofs()"))
+            invoke_sub.add(CommentGen(invoke_sub, ""))
 
         # Create the call to the 2nd level of the PSy layer
         # that deals only with intrinsic Fortran types.
@@ -1889,46 +1963,35 @@ class DynKern(Kern):
             # (unknown) space. Therefore we can use any field to
             # dereference. We choose the 2nd one as that is what is
             # done in the manual implementation.
-            reference_arg = self.arguments.args[1]
             enforce_bc_arg = self.arguments.args[0]
             space_name = "w2"
+            self._name_space_manager = NameSpaceFactory().create()
+            # Look-up the variable names that we created when generating the PSy2 
+            # subroutine in DynInvoke::gen_code()
+            fs_name = self._name_space_manager.create_name(context="psy2",
+                                                           label="bc_fs_name")
+            boundary_dofs_name = self._name_space_manager.create_name(
+                context="psy2",
+                label="bc_dofs_name")
             kern_func_space_name = enforce_bc_arg.function_space
             ndf_name = self.fs_descriptors.ndf_name(kern_func_space_name)
             undf_name = self.fs_descriptors.undf_name(kern_func_space_name)
             map_name = self.fs_descriptors.map_name(kern_func_space_name)
-            w2_proxy_name = reference_arg.proxy_name
-            self._name_space_manager = NameSpaceFactory().create()
-            fs_name = self._name_space_manager.create_name(root_name="fs")
-            boundary_dofs_name = self._name_space_manager.create_name(
-                root_name="boundary_dofs_"+space_name)
             grandparent.add(UseGen(grandparent, name="function_space_mod",
-                                only=True, funcnames=[space_name]))
-            grandparent.add(DeclGen(grandparent, datatype="integer", pointer=True,
-                                 entity_decls=[boundary_dofs_name +
-                                             "(:,:) => null()"]))
-            grandparent.add(DeclGen(grandparent, datatype="integer",
-                                 entity_decls=[fs_name]))
+                                   only=True, funcnames=[space_name]))
             new_grandparent, position = grandparent.start_parent_loop()
-            new_grandparent.add(AssignGen(new_grandparent, lhs=fs_name,
-                                     rhs=reference_arg.name +
-                                     "%which_function_space()"),
-                             position=["before", position])
-            if_then = IfThenGen(new_grandparent, fs_name+" .eq. "+space_name)
-            new_grandparent.add(if_then, position=["before", position])
-            if_then.add(AssignGen(if_then, pointer=True,
-                                  lhs=boundary_dofs_name,
-                                  rhs=w2_proxy_name +
-                                  "%vspace%get_boundary_dofs()"))
             grandparent.add(CommentGen(grandparent, ""))
             if_then = IfThenGen(grandparent, fs_name+" .eq. "+space_name)
             grandparent.add(if_then)
             nlayers_name = self._name_space_manager.create_name(
                 root_name="nlayers", context="PSyVars", label="nlayers")
-            grandparent.add(UseGen(grandparent, name="enforce_bc_kernel_mod", only=True,
-                              funcnames=["enforce_bc_code"]))
+            grandparent.add(UseGen(grandparent,
+                                   name="enforce_bc_kernel_mod",
+                                   only=True,
+                                   funcnames=["enforce_bc_code"]))
             if_then.add(CallGen(if_then, "enforce_bc_code",
                                 [nlayers_name,
-                                 enforce_bc_arg.proxy_name+"%data",
+                                 enforce_bc_arg.proxy_name,
                                  ndf_name, undf_name, map_name,
                                  boundary_dofs_name]))
             grandparent.add(CommentGen(grandparent, ""))
