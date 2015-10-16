@@ -836,8 +836,16 @@ class DynInvoke(Invoke):
             invoke_sub.add(CommentGen(invoke_sub, ""))
             invoke_sub.add(CommentGen(invoke_sub, " Initialise qr values"))
             invoke_sub.add(CommentGen(invoke_sub, ""))
+            qr_names = ["nqp_h", "nqp_v"]
             invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
-                           entity_decls=["nqp_h", "nqp_v"]))
+                                   entity_decls=qr_names))
+            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                          datatype="integer",
+                                          intent="in",
+                                          entity_decls=qr_names))
+            psy2_caller_args.extend(qr_names)
+            psy2_dummy_args.extend(qr_names)
+
             invoke_sub.add(DeclGen(invoke_sub, datatype="real", pointer=True,
                            kind="r_def", entity_decls=["xp(:,:) => null()"]))
             decl_list = ["zp(:) => null()", "wh(:) => null()",
@@ -859,7 +867,8 @@ class DynInvoke(Invoke):
                 invoke_sub.add(AssignGen(invoke_sub, lhs=qr_var,
                                rhs=qr_var_name + "%get_" + qr_var + "()"))
 
-        operator_declarations = []
+        psy1_operator_declarations = []
+        psy2_operator_declarations = []
         var_list = []
         var_dim_list = []
         # loop over all function spaces used by the kernels in this invoke
@@ -914,7 +923,8 @@ class DynInvoke(Invoke):
                 psy2_dummy_args.append(dmap_name)
 
                 invoke_sub.add(AssignGen(invoke_sub, lhs=dmap_name,
-                                         rhs=name+"%"+arg.ref_name+"%get_dofmap()"))
+                                         rhs=name+"%"+arg.ref_name+\
+                                         "%get_dofmap()"))
             if self.basis_required(function_space):
                 # initialise 'dim' variable for this function space
                 # and add name to list to declare later
@@ -932,7 +942,10 @@ class DynInvoke(Invoke):
                 invoke_sub.add(AllocateGen(invoke_sub,
                                            op_name+"("+alloc_args+")"))
                 # add basis function variable to list to declare later
-                operator_declarations.append(op_name+"(:,:,:,:)")
+                psy1_operator_declarations.append(op_name+"(:,:,:,:)")
+                psy2_operator_declarations.append(op_name+"("+alloc_args+")")
+                psy2_caller_args.append(op_name)
+                psy2_dummy_args.append(op_name)
             if self.diff_basis_required(function_space):
                 # initialise 'diff_dim' variable for this function
                 # space and add name to list to declare later
@@ -950,8 +963,14 @@ class DynInvoke(Invoke):
                 invoke_sub.add(AllocateGen(invoke_sub,
                                            op_name+"("+alloc_args+")"))
                 # add diff basis function variable to list to declare later
-                operator_declarations.append(op_name+"(:,:,:,:)")
-        if not var_list == []:
+                psy1_operator_declarations.append(op_name+"(:,:,:,:)")
+                psy2_operator_declarations.append(op_name+"("+alloc_args+")")
+                # Add the arrays containing the diff basis to the arg list
+                # for PSy2
+                psy2_caller_args.append(op_name)
+                psy2_dummy_args.append(op_name)
+
+        if var_list:
             # declare ndf and undf for all function spaces
             invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
                                    entity_decls=var_list))
@@ -960,16 +979,26 @@ class DynInvoke(Invoke):
                                           intent="in",
                                           entity_decls=var_list))
 
-        if not var_dim_list == []:
+        if var_dim_list:
             # declare dim and diff_dim for all function spaces
-            invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
+            invoke_sub.add(DeclGen(invoke_sub,
+                                   datatype="integer",
                                    entity_decls=var_dim_list))
-        if not operator_declarations == []:
+            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                          datatype="integer",
+                                          intent="in",
+                                          entity_decls=var_dim_list))
+        if psy1_operator_declarations:
             # declare the basis function operators
             invoke_sub.add(DeclGen(invoke_sub, datatype="real",
                                    allocatable=True,
                                    kind="r_def",
-                                   entity_decls=operator_declarations))
+                                   entity_decls=psy1_operator_declarations))
+            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                          datatype="real",
+                                          kind="r_def",
+                                          intent="in",
+                                          entity_decls=psy2_operator_declarations))
 
         if self.is_coloured():
             # Add declarations of the colour map and array holding the
