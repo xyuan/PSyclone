@@ -613,6 +613,22 @@ class DynInvoke(Invoke):
                 return kern_call
         return None
 
+    def orientation_required(self, func_space):
+        '''Returns arg descriptor if orientation information is required for
+        the given function space in this Invoke. Returns None
+        otherwise.
+
+        '''
+        # look in each kernel
+        for kern_call in self.schedule.kern_calls():
+            # is there a descriptor for this function space?
+            if kern_call.fs_descriptors.exists(func_space):
+                descriptor = kern_call.fs_descriptors.\
+                             get_descriptor(func_space)
+                if descriptor.orientation:
+                    return descriptor
+        return None
+
     def is_coloured(self):
         ''' Returns true if at least one of the loops in the
         schedule of this invoke has been coloured '''
@@ -714,6 +730,7 @@ class DynInvoke(Invoke):
 
         # add the subroutine argument declarations for the fields
         field_args = self.unique_args("gh_field")
+        field_on_space = {}
         for fld in field_args:
             invoke_sub.add(TypeDeclGen(invoke_sub, datatype="field_type",
                                        entity_decls=[fld],
@@ -725,6 +742,9 @@ class DynInvoke(Invoke):
                                           intent="inout",
                                           dimension=name,
                                           entity_decls=[fld+"_proxy"]))
+            # Populate a dictionary that will allow us to map from
+            # a space to a field that is on that space (if any)
+            field_on_space[field_args[fld].function_space] = field_args[fld]
 
         # operators
         operator_declarations = self.unique_declarations("gh_operator")
@@ -880,8 +900,8 @@ class DynInvoke(Invoke):
             invoke_sub.add(CommentGen(invoke_sub, ""))
 
             # Find an argument on this space to use to dereference
-            arg = self.arg_for_funcspace(function_space)
-            name = arg.proxy_name_indexed
+            arg_on_space = self.arg_for_funcspace(function_space)
+            name_on_space = arg_on_space.proxy_name_indexed
 
             # initialise ndf for this function space and add name to
             # list to declare later
@@ -891,27 +911,32 @@ class DynInvoke(Invoke):
             psy2_dummy_args.append(ndf_name)
 
             invoke_sub.add(AssignGen(invoke_sub, lhs=ndf_name,
-                                     rhs=name+"%"+arg.ref_name+"%get_ndf()"))
+                                     rhs=name_on_space+"%"+\
+                                     arg_on_space.ref_name+"%get_ndf()"))
 
             # if there is a field on this space then initialise undf
             # for this function space and add name to list to declare
             # later
-            if self.field_on_space(function_space):
+            if function_space in field_on_space.keys():
                 undf_name = self.undf_name(function_space)
                 # Append this name to the list of variables that we pass
                 # down to PSy2
                 var_list.append(undf_name)
                 psy2_caller_args.append(undf_name)
                 psy2_dummy_args.append(undf_name)
-                invoke_sub.add(AssignGen(invoke_sub, lhs=undf_name,
-                               rhs=name+"%"+arg.ref_name+"%get_undf()"))
+                invoke_sub.add(AssignGen(invoke_sub,
+                                         lhs=undf_name,
+                                         rhs=name_on_space+"%"+\
+                                         arg_on_space.ref_name+\
+                                         "%get_undf()"))
                 # A map is required as there is a field on this space
                 # TODO get_dofmap() does not currently exist in the Dynamo
                 # API but I think it may have to be implemented...
                 dmap_name = self.dofmap_name(function_space)
                 invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
                                        pointer=True,
-                                       entity_decls=[dmap_name+"(:,:) => null()"]))
+                                       entity_decls=[dmap_name+\
+                                                     "(:,:) => null()"]))
                 #TODO Is it correct that the map is a (ptr to a) 2D array in
                 # PSy1 but is a 1D array in the kernel (and in PSy2)?
                 invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
@@ -923,7 +948,8 @@ class DynInvoke(Invoke):
                 psy2_dummy_args.append(dmap_name)
 
                 invoke_sub.add(AssignGen(invoke_sub, lhs=dmap_name,
-                                         rhs=name+"%"+arg.ref_name+\
+                                         rhs=name_on_space+"%"+\
+                                         arg_on_space.ref_name+\
                                          "%get_dofmap()"))
             if self.basis_required(function_space):
                 # initialise 'dim' variable for this function space
@@ -933,7 +959,7 @@ class DynInvoke(Invoke):
                 psy2_caller_args.append(lhs)
                 psy2_dummy_args.append(lhs)
 
-                rhs = name+"%"+arg.ref_name+"%get_dim_space()"
+                rhs = name_on_space+"%"+arg_on_space.ref_name+"%get_dim_space()"
                 invoke_sub.add(AssignGen(invoke_sub, lhs=lhs, rhs=rhs))
                 # allocate the basis function variable
                 alloc_args = "dim_" + function_space + ", " + \
@@ -953,7 +979,8 @@ class DynInvoke(Invoke):
                 var_dim_list.append(lhs)
                 psy2_caller_args.append(lhs)
                 psy2_dummy_args.append(lhs)
-                rhs = name+"%"+arg.ref_name+"%get_dim_space_diff()"
+                rhs = name_on_space+"%"+arg_on_space.ref_name+\
+                      "%get_dim_space_diff()"
                 invoke_sub.add(AssignGen(invoke_sub, lhs=lhs, rhs=rhs))
                 # allocate the diff basis function variable
                 alloc_args = "diff_dim_" + function_space + ", " + \
@@ -969,6 +996,36 @@ class DynInvoke(Invoke):
                 # for PSy2
                 psy2_caller_args.append(op_name)
                 psy2_dummy_args.append(op_name)
+            # Orientation
+            fs_descriptor = self.orientation_required(function_space)
+            if fs_descriptor:
+                # TODO get_orientation() does not currently exist in
+                # the Dynamo API since orientation is looked-up on a
+                # per-cell basis
+                invoke_sub.add(DeclGen(invoke_sub,
+                                       datatype="integer",
+                                       pointer=True,
+                                       entity_decls=[fs_descriptor.\
+                                                     orientation_name+\
+                                                     "(:) => null()"]))
+                invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                              datatype="integer",
+                                              intent="in",
+                                              dimension=self.ndf_name(function_space),
+                                              entity_decls=[fs_descriptor.orientation_name]))
+                psy2_caller_args.append(fs_descriptor.orientation_name)
+                psy2_dummy_args.append(fs_descriptor.orientation_name)
+
+                # TODO do we still need to worry about a colour map
+                # if we're getting the whole orientation array?
+                dofmap_args = ""
+                invoke_sub.add(AssignGen(invoke_sub, pointer=True,
+                                         lhs=fs_descriptor.orientation_name,
+                                         rhs=name_on_space + "%" +
+                                         field_on_space[function_space].\
+                                         ref_name +
+                                         "%get_orientation(" +
+                                         dofmap_args + ")"))
 
         if var_list:
             # declare ndf and undf for all function spaces
@@ -1966,27 +2023,8 @@ class DynKern(Kern):
             if self.field_on_space(unique_fs):
                 maps_required = True
 
-        # orientation arrays initialisation and their declarations
-        for unique_fs in self.arguments.unique_fss:
-            if self._fs_descriptors.exists(unique_fs):
-                fs_descriptor = self._fs_descriptors.get_descriptor(unique_fs)
-                if fs_descriptor.orientation:
-                    field = self._arguments.get_field(unique_fs)
-                    grandparent.add(AssignGen(grandparent, pointer=True,
-                               lhs=fs_descriptor.orientation_name,
-                               rhs=field.proxy_name_indexed + "%" +
-                                         field.ref_name +
-                                         "%get_cell_orientation(" +
-                                         dofmap_args + ")"))
-        if self._fs_descriptors.orientation:
-            orientation_decl_names = []
-            for orientation_name in self._fs_descriptors.orientation_names:
-                orientation_decl_names.append(orientation_name +
-                                              "(:) => null()")
-            grandparent.add(DeclGen(grandparent, datatype="integer", pointer=True,
-                               entity_decls=orientation_decl_names))
-            grandparent.add(CommentGen(grandparent, ""))
-
+        # orientation arrays initialisation and their declarations is
+        # handled in DynInvoke::gen_code
         arglist = self.create_arg_list_raw(grandparent)
 
         # generate the kernel call and associated use statement
