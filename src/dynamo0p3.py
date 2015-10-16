@@ -1459,12 +1459,15 @@ class DynKern(Kern):
             parent.add(UseGen(parent, name="constants_mod", only="True",
                               funcnames=["r_def"]))
         if raw_arrays:
+            # If we're using raw arrays then we cannot be
+            # accessing elements of derived types
             name_sep = "_"
         else:
             name_sep = "%"
+
         # create the argument list
         arglist = []
-        if self._arguments.has_operator:
+        if not raw_arrays and self._arguments.has_operator:
             # 0.5: provide cell position
             arglist.append("cell")
             if my_type == "subroutine":
@@ -1498,8 +1501,9 @@ class DynKern(Kern):
                                 first_arg = False
                                 first_arg_decl = decl
                         else:
-                            text = arg.proxy_name + "(" + str(idx) + ")" + \
-                                   dataref
+                            text = arg.proxy_name + "(" + str(idx) + ")"
+                            if not raw_arrays:
+                                text += dataref
                         arglist.append(text)
                 else:
                     if my_type == "subroutine":
@@ -1584,237 +1588,11 @@ class DynKern(Kern):
                     parent.add(DeclGen(parent, datatype="integer", intent="in",
                                        entity_decls=[undf_name]),
                                position=["before", first_arg_decl.root])
-                    parent.add(DeclGen(parent, datatype="integer", intent="in",
-                                       dimension=ndf_name,
-                                       entity_decls=[map_name]))
-            # 3.2 Provide any optional arguments. These arguments are
-            # associated with the keyword arguments (basis function,
-            # differential basis function and orientation) for a
-            # function space.
-            if self._fs_descriptors.exists(unique_fs):
-                descriptor = self._fs_descriptors.get_descriptor(unique_fs)
-                if descriptor.requires_basis:
-                    basis_name = descriptor.basis_name
-                    arglist.append(basis_name)
-                    if my_type == "subroutine":
-                        # the size of the first dimension for a
-                        # basis array depends on the
-                        # function space. The values are
-                        # w0=1, w1=3, w2=3, w3=1
-                        first_dim = None
-                        if unique_fs.lower() in ["w0", "w3"]:
-                            first_dim = "1"
-                        elif unique_fs.lower() in ["w1", "w2"]:
-                            first_dim = "3"
-                        else:
-                            raise GenerationError(
-                                "Unsupported space for basis function, "
-                                "expecting one of 'W0,W1,W2,W3' but found "
-                                "'{0}'".format(unique_fs))
-                        parent.add(DeclGen(parent, datatype="real",
-                                           kind="r_def", intent="in",
-                                           dimension=first_dim + "," +
-                                           ndf_name + "," +
-                                           self._qr_args["nh"] + "," +
-                                           self._qr_args["nv"],
-                                           entity_decls=[basis_name]))
-                if descriptor.requires_diff_basis:
-                    diff_basis_name = descriptor.diff_basis_name
-                    arglist.append(diff_basis_name)
-                    if my_type == "subroutine":
-                        # the size of the first dimension for a
-                        # differential basis array depends on the
-                        # function space. The values are
-                        # w0=3,w1=3,w2=1,w3=1
-                        first_dim = None
-                        if unique_fs.lower() in ["w2", "w3"]:
-                            first_dim = "1"
-                        elif unique_fs.lower() in ["w0", "w1"]:
-                            first_dim = "3"
-                        else:
-                            raise GenerationError(
-                                "Unsupported space for differential basis "
-                                "function, expecting one of 'W0,W1,W2,W3'"
-                                " but found '{0}'".format(unique_fs))
-                        parent.add(DeclGen(parent, datatype="real",
-                                           kind="r_def", intent="in",
-                                           dimension=first_dim + "," +
-                                           ndf_name + "," +
-                                           self._qr_args["nh"] + "," +
-                                           self._qr_args["nv"],
-                                           entity_decls=[diff_basis_name]))
-                if descriptor.requires_orientation:
-                    orientation_name = descriptor.orientation_name
-                    arglist.append(orientation_name)
-                    if my_type == "subroutine":
+                    if not raw_arrays:
                         parent.add(DeclGen(parent, datatype="integer",
-                                           intent="in", dimension=ndf_name,
-                                           entity_decls=[orientation_name]))
-            # 3.3 Fix for boundary_dofs array to the boundary
-            # condition kernel (enforce_bc_kernel) arguments
-            if self.name.lower() == "enforce_bc_code" and \
-               unique_fs.lower() == "any_space_1":
-                arglist.append("boundary_dofs")
-                if my_type == "subroutine":
-                    ndf_name = self._fs_descriptors.ndf_name("any_space_1")
-                    parent.add(DeclGen(parent, datatype="integer", intent="in",
-                                       dimension=ndf_name+",2",
-                                       entity_decls=["boundary_dofs"]))
-                if my_type == "call":
-                    parent.add(DeclGen(parent, datatype="integer",
-                                       pointer=True, entity_decls=[
-                                           "boundary_dofs(:,:) => null()"]))
-                    proxy_name = self._arguments.get_field("any_space_1").\
-                        proxy_name
-                    new_parent, position = parent.start_parent_loop()
-                    new_parent.add(AssignGen(new_parent, pointer=True,
-                                             lhs="boundary_dofs",
-                                             rhs=proxy_name +
-                                             "%vspace%get_boundary_dofs()"),
-                                   position=["before", position])
-        # 4: Provide qr arguments if required
-        if self._qr_required:
-            arglist.extend([self._qr_args["nh"], self._qr_args["nv"],
-                            self._qr_args["h"], self._qr_args["v"]])
-            if my_type == "subroutine":
-                parent.add(DeclGen(parent, datatype="integer", intent="in",
-                                   entity_decls=[self._qr_args["nh"],
-                                                 self._qr_args["nv"]]))
-                parent.add(DeclGen(parent, datatype="real", kind="r_def",
-                                   intent="in", dimension=self._qr_args["nh"],
-                                   entity_decls=[self._qr_args["h"]]))
-                parent.add(DeclGen(parent, datatype="real", kind="r_def",
-                                   intent="in", dimension=self._qr_args["nv"],
-                                   entity_decls=[self._qr_args["v"]]))
-        return arglist
-
-    def create_arg_list_raw(self, parent, my_type="call"):
-        ''' creates the kernel call or kernel stub subroutine argument
-        list. For kernel stubs it also creates the data
-        declarations. '''
-        from f2pygen import DeclGen, AssignGen, UseGen
-        if my_type == "subroutine":
-            # add in any required USE associations
-            parent.add(UseGen(parent, name="constants_mod", only="True",
-                              funcnames=["r_def"]))
-        name_sep = "_"
-        # create the argument list
-        arglist = []
-        # 1: provide mesh height
-        arglist.append("nlayers")
-        if my_type == "subroutine":
-            parent.add(DeclGen(parent, datatype="integer", intent="in",
-                               entity_decls=["nlayers"]))
-        # 2: Provide data associated with fields in the order
-        #    specified in the metadata.  If we have a vector field
-        #    then generate the appropriate number of arguments.
-        first_arg = True
-        first_arg_decl = None
-        for arg in self._arguments.args:
-            undf_name = self._fs_descriptors.undf_name(arg.function_space)
-            if arg.type == "gh_field":
-                if arg.vector_size > 1:
-                    for idx in range(1, arg.vector_size+1):
-                        if my_type == "subroutine":
-                            text = arg.name + "_" + arg.function_space + \
-                                "_v" + str(idx)
-                            intent = arg.intent
-                            decl = DeclGen(parent, datatype="real",
-                                           kind="r_def", dimension=undf_name,
-                                           intent=intent, entity_decls=[text])
-                            parent.add(decl)
-                            if first_arg:
-                                first_arg = False
-                                first_arg_decl = decl
-                        else:
-                            text = arg.proxy_name + "(" + str(idx) + ")"
-                        arglist.append(text)
-                else:
-                    if my_type == "subroutine":
-                        text = arg.name + "_" + arg.function_space
-                        intent = arg.intent
-                        decl = DeclGen(parent, datatype="real",
-                                       kind="r_def", dimension=undf_name,
-                                       intent=intent, entity_decls=[text])
-                        parent.add(decl)
-                        if first_arg:
-                            first_arg = False
-                            first_arg_decl = decl
-                    else:
-                        text = arg.proxy_name
-                    arglist.append(text)
-            elif arg.type == "gh_operator":
-                if my_type == "subroutine":
-                    # check whether the operator works on the same space.
-                    if arg.descriptor.function_space_from != \
-                       arg.descriptor.function_space_to:
-                        raise GenerationError(
-                            "Stub gen currently assumes that operators work "
-                            "on the same function space, therefore the "
-                            "declarations will be incorrect. The generator"
-                            "needs to know which dimension is 'from' and "
-                            "which is 'to' before we can generate the "
-                            "correct code.")
-                    size = arg.name+"_ncell_3d"
-                    arglist.append(size)
-                    decl = DeclGen(parent, datatype="integer", intent="in",
-                                   entity_decls=[size])
-                    parent.add(decl)
-                    if first_arg:
-                        first_arg = False
-                        first_arg_decl = decl
-                    text = arg.name
-                    arglist.append(text)
-                    intent = arg.intent
-                    ndf_name = self._fs_descriptors.ndf_name(
-                        arg.function_space)
-                    parent.add(DeclGen(parent, datatype="real",
-                                       kind="r_def",
-                                       dimension=ndf_name + "," + ndf_name +
-                                       "," + size,
-                                       intent=intent, entity_decls=[text]))
-                else:
-                    arglist.append(arg.proxy_name_indexed+name_sep+
-                                   "ncell_3d")
-                    arglist.append(arg.proxy_name_indexed+name_sep+
-                                   "local_stencil")
-            else:
-                raise GenerationError(
-                    "Unexpected arg type found in "
-                    "dynamo0p3.py:DynKern:gen_code(). Expected one of"
-                    " [gh_field, gh_operator] but found " + arg.type)
-        # 3: For each function space (in the order they appear in the
-        # metadata arguments)
-        for unique_fs in self.arguments.unique_fss:
-            # 3.1 Provide compulsory arguments common to operators and
-            # fields on a space. There is one: "ndf".
-            ndf_name = self._fs_descriptors.ndf_name(unique_fs)
-            arglist.append(ndf_name)
-            if my_type == "subroutine":
-                parent.add(DeclGen(parent, datatype="integer", intent="in",
-                           entity_decls=[ndf_name]))
-            # 3.1.1 Provide additional compulsory arguments if there
-            # is a field on this space
-            if self.field_on_space(unique_fs):
-                undf_name = self._fs_descriptors.undf_name(unique_fs)
-                arglist.append(undf_name)
-                map_name = self._fs_descriptors.map_name(unique_fs)
-                arglist.append(map_name)
-                if my_type == "subroutine":
-                    # ndf* declarations need to be before argument
-                    # declarations as some compilers don't like
-                    # declarations after they have been used. We place
-                    # ndf* before the first argument declaration
-                    # (field or operator) (rather than after nlayers)
-                    # as this keeps the declarations in the order
-                    # specified in the metadata and first used by
-                    # fields/operators.
-                    parent.add(DeclGen(parent, datatype="integer", intent="in",
-                                       entity_decls=[undf_name]),
-                               position=["before", first_arg_decl.root])
-                    #parent.add(DeclGen(parent, datatype="integer", intent="in",
-                    #                   dimension=ndf_name,
-                    #                   entity_decls=[map_name]))
+                                           intent="in",
+                                           dimension=ndf_name,
+                                           entity_decls=[map_name]))
             # 3.2 Provide any optional arguments. These arguments are
             # associated with the keyword arguments (basis function,
             # differential basis function and orientation) for a
@@ -2028,7 +1806,7 @@ class DynKern(Kern):
 
         # orientation arrays initialisation and their declarations is
         # handled in DynInvoke::gen_code
-        arglist = self.create_arg_list_raw(grandparent)
+        arglist = self._create_arg_list(grandparent, raw_arrays=True)
 
         # generate the kernel call and associated use statement
         parent.add(CallGen(parent, self._name, arglist))
