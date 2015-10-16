@@ -1700,6 +1700,11 @@ class DynKern(Kern):
         name_sep = "_"
         # create the argument list
         arglist = []
+        # 1: provide mesh height
+        arglist.append("nlayers")
+        if my_type == "subroutine":
+            parent.add(DeclGen(parent, datatype="integer", intent="in",
+                               entity_decls=["nlayers"]))
         # 2: Provide data associated with fields in the order
         #    specified in the metadata.  If we have a vector field
         #    then generate the appropriate number of arguments.
@@ -1708,7 +1713,6 @@ class DynKern(Kern):
         for arg in self._arguments.args:
             undf_name = self._fs_descriptors.undf_name(arg.function_space)
             if arg.type == "gh_field":
-                dataref = name_sep+"data"
                 if arg.vector_size > 1:
                     for idx in range(1, arg.vector_size+1):
                         if my_type == "subroutine":
@@ -1723,8 +1727,7 @@ class DynKern(Kern):
                                 first_arg = False
                                 first_arg_decl = decl
                         else:
-                            text = arg.proxy_name + "(" + str(idx) + ")" + \
-                                   dataref
+                            text = arg.proxy_name + "(" + str(idx) + ")"
                         arglist.append(text)
                 else:
                     if my_type == "subroutine":
@@ -1738,7 +1741,7 @@ class DynKern(Kern):
                             first_arg = False
                             first_arg_decl = decl
                     else:
-                        text = arg.proxy_name+dataref
+                        text = arg.proxy_name
                     arglist.append(text)
             elif arg.type == "gh_operator":
                 if my_type == "subroutine":
