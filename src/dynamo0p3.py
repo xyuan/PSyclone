@@ -735,13 +735,6 @@ class DynInvoke(Invoke):
             invoke_sub.add(TypeDeclGen(invoke_sub, datatype="field_type",
                                        entity_decls=[fld],
                                        intent="inout"))
-            name = self.undf_name(field_args[fld].function_space)
-            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
-                                          datatype="real",
-                                          kind="r_def",
-                                          intent="inout",
-                                          dimension=name,
-                                          entity_decls=[fld+"_proxy"]))
             # Populate a dictionary that will allow us to map from
             # a space to a field that is on that space (if any)
             field_on_space[field_args[fld].function_space] = field_args[fld]
@@ -759,28 +752,43 @@ class DynInvoke(Invoke):
                                        intent="in"))
         # declare and initialise proxies for each of the arguments. Each
         # proxy represents something that has to be passed from PSy1 to
-        # PSy 2.
+        # PSy2. We have to take care of cases where we have vectors of
+        # proxies as each of these represents a separate array that will
+        # be passed down to PSy2.
         invoke_sub.add(CommentGen(invoke_sub, ""))
         invoke_sub.add(CommentGen(invoke_sub, " Initialise field proxies"))
         invoke_sub.add(CommentGen(invoke_sub, ""))
         for arg in self.psy_unique_vars:
+            psy2_args = []
             if arg.vector_size > 1:
                 for idx in range(1, arg.vector_size+1):
+                    lhs_name = arg.proxy_name+"("+str(idx)+")"
                     invoke_sub.add(AssignGen(invoke_sub,
-                                   lhs=arg.proxy_name+"("+str(idx)+")",
+                                   lhs=lhs_name,
                                    rhs=arg.name+"("+str(idx)+")%get_proxy()"))
+                    psy2_caller_args.append(lhs_name+"%data")
+                    psy2_args.append(arg.proxy_name+"_"+str(idx))
             else:
                 invoke_sub.add(AssignGen(invoke_sub, lhs=arg.proxy_name,
                                          rhs=arg.name+"%get_proxy()"))
+                psy2_caller_args.append(arg.proxy_name+"%data")
+                psy2_args.append(arg.proxy_name)
+            # Add the collection of arguments to the dummy argument
+            # list and declare them within PSy2
+            dim_name = self.undf_name(arg.function_space)
+            psy2_dummy_args.extend(psy2_args)
+            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                          datatype="real",
+                                          kind="r_def",
+                                          intent="inout",
+                                          dimension=dim_name,
+                                          entity_decls=psy2_args))
 
         field_proxy_decs = self.unique_declarations("gh_field", proxy=True)
-        if len(field_proxy_decs) > 0:
+        if field_proxy_decs:
             invoke_sub.add(TypeDeclGen(invoke_sub,
                            datatype="field_proxy_type",
                            entity_decls=field_proxy_decs))
-        for var in field_proxy_decs:
-            psy2_caller_args.append(var+"%data")
-            psy2_dummy_args.append(var)
 
         # Initialise the number of layers
         invoke_sub.add(CommentGen(invoke_sub, ""))
@@ -1501,9 +1509,11 @@ class DynKern(Kern):
                                 first_arg = False
                                 first_arg_decl = decl
                         else:
-                            text = arg.proxy_name + "(" + str(idx) + ")"
-                            if not raw_arrays:
-                                text += dataref
+                            if raw_arrays:
+                                text = arg.proxy_name + "_" + str(idx)
+                            else:
+                                text = arg.proxy_name + "(" + str(idx) + ")" \
+                                       + dataref
                         arglist.append(text)
                 else:
                     if my_type == "subroutine":
@@ -1517,7 +1527,10 @@ class DynKern(Kern):
                             first_arg = False
                             first_arg_decl = decl
                     else:
-                        text = arg.proxy_name+dataref
+                        if raw_arrays:
+                            text = arg.proxy_name
+                        else:
+                            text = arg.proxy_name+dataref
                     arglist.append(text)
             elif arg.type == "gh_operator":
                 if my_type == "subroutine":
