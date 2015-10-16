@@ -692,24 +692,25 @@ class DynInvoke(Invoke):
             IfThenGen
         # create a namespace manager so we can avoid name clashes
         self._name_space_manager = NameSpaceFactory().create()
+
         # create the 1st-level PSy subroutine
         invoke_sub = SubroutineGen(parent, name=self.name,
                                    args=self.psy_unique_var_names +
                                    self._psy_unique_qr_vars)
+        # Create the subroutine that contains the 2nd level of the
+        # PSy layer. This routine contains no references to
+        # Fortran derived types. Since we don't yet know the list
+        # of arguments to this routine we defer setting them by 
+        # passing in None.
+        invoke_sub_arrays = SubroutineGen(parent,
+                                          name=self.name+"_arrays",
+                                          args=None)
 
         # The list of args that the PSy2 subroutine will be passed
         psy2_caller_args = []
         # The corresponding list of dummy arguments inside the PSy2
         # subroutine
         psy2_dummy_args = []
-        # A list of declaration objects that will be added to the PSy2
-        # object once it is created. We can't create it straight away
-        # because we first have to work out what its arguments
-        # will be.
-        # TODO because we are creating these declarations before
-        # the object to which they belong, we are giving their
-        # parent as 'invoke_sub'. What are the consequences of this?
-        psy2_declarations = []
 
         # add the subroutine argument declarations for the fields
         field_args = self.unique_args("gh_field")
@@ -718,11 +719,12 @@ class DynInvoke(Invoke):
                                        entity_decls=[fld],
                                        intent="inout"))
             name = self.undf_name(field_args[fld].function_space)
-            psy2_declarations.append(DeclGen(invoke_sub, datatype="real",
-                                             kind="r_def",
-                                             intent="inout",
-                                             dimension=name,
-                                             entity_decls=[fld+"_proxy"]))
+            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                          datatype="real",
+                                          kind="r_def",
+                                          intent="inout",
+                                          dimension=name,
+                                          entity_decls=[fld+"_proxy"]))
 
         # operators
         operator_declarations = self.unique_declarations("gh_operator")
@@ -782,12 +784,16 @@ class DynInvoke(Invoke):
         # Create declarations for them both in PSy1 and PSy2. We insert
         # them at index 0 so that they are declared before any arrays
         # that may use them to specify extents.
+        # TODO could we have declarations for integer, intent=in arguments
+        # bubble up so that they are always before any array declarations
+        # that may use them for dimensioning?
         invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
                                entity_decls = [ncells_name, nlayers_name]))
-        psy2_declarations.insert(0, DeclGen(invoke_sub, datatype="integer",
-                                            intent="in",
-                                            entity_decls = [ncells_name,
-                                                            nlayers_name]))
+        invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                      datatype="integer",
+                                      intent="in",
+                                      entity_decls = [ncells_name,
+                                                      nlayers_name]))
         invoke_sub.add(AssignGen(invoke_sub, lhs=nlayers_name,
                        rhs=first_var.proxy_name_indexed + "%" +
                        first_var.ref_name + "%get_nlayers()"))
@@ -816,10 +822,11 @@ class DynInvoke(Invoke):
                                      rhs=op+"%local_stencil"))
             fspace = op_list[op].function_space
             name = self.ndf_name(fspace)
-            psy2_declarations.append(DeclGen(invoke_sub, datatype="real",
-                                             kind="r_def", intent="inout",
-                                             dimension=2*(name+",")+ncell3d_name,
-                                             entity_decls=[stencil_name]))
+            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                          datatype="real",
+                                          kind="r_def", intent="inout",
+                                          dimension=2*(name+",")+ncell3d_name,
+                                          entity_decls=[stencil_name]))
             invoke_sub.add(DeclGen(invoke_sub, datatype="real",
                                    kind="r_def", pointer=True,
                                    entity_decls=[stencil_name+"(:,:,:) => null()"]))
@@ -898,10 +905,11 @@ class DynInvoke(Invoke):
                                        entity_decls=[dmap_name+"(:,:) => null()"]))
                 #TODO Is it correct that the map is a (ptr to a) 2D array in
                 # PSy1 but is a 1D array in the kernel (and in PSy2)?
-                psy2_declarations.append(DeclGen(invoke_sub, datatype="integer",
-                                                 dimension=ndf_name,
-                                                 intent="in",
-                                                 entity_decls=[dmap_name]))
+                invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                              datatype="integer",
+                                              dimension=ndf_name,
+                                              intent="in",
+                                              entity_decls=[dmap_name]))
                 psy2_caller_args.append(dmap_name)
                 psy2_dummy_args.append(dmap_name)
 
@@ -947,6 +955,11 @@ class DynInvoke(Invoke):
             # declare ndf and undf for all function spaces
             invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
                                    entity_decls=var_list))
+            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                          datatype="integer",
+                                          intent="in",
+                                          entity_decls=var_list))
+
         if not var_dim_list == []:
             # declare dim and diff_dim for all function spaces
             invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
@@ -1044,18 +1057,21 @@ class DynInvoke(Invoke):
                                    pointer=True,
                                    entity_decls=[boundary_dofs_name +
                                                  "(:,:) => null()"]))
-            psy2_declarations.append(DeclGen(invoke_sub, datatype="integer",
-                                             intent="in",
-                                             dimension=ndf_name+",2",
-                                             entity_decls=[boundary_dofs_name]))
+            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                          datatype="integer",
+                                          intent="in",
+                                          dimension=ndf_name+",2",
+                                          entity_decls=[boundary_dofs_name]))
             psy2_caller_args.append(boundary_dofs_name)
             psy2_dummy_args.append(boundary_dofs_name)
 
-            invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
+            invoke_sub.add(DeclGen(invoke_sub,
+                                   datatype="integer",
                                    entity_decls=[fs_name]))
-            psy2_declarations.append(DeclGen(invoke_sub, datatype="integer",
-                                             intent="in",
-                                             entity_decls=[fs_name]))
+            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                          datatype="integer",
+                                          intent="in",
+                                          entity_decls=[fs_name]))
             invoke_sub.add(AssignGen(invoke_sub, lhs=fs_name,
                                      rhs=reference_arg.name +
                                      "%which_function_space()"))
@@ -1079,17 +1095,8 @@ class DynInvoke(Invoke):
         invoke_sub.add(CallGen(invoke_sub, self.name+"_arrays",
                                psy2_caller_args))
 
-        # Create the subroutine that contains the 2nd level of the
-        # PSy layer. This routine contains no references to
-        # Fortran derived types
-        invoke_sub_arrays = SubroutineGen(parent,
-                                          name=self.name+"_arrays",
-                                          args= psy2_dummy_args)
-
-        # Add the declarations we generated while looping over all of the
-        # unique args to this Invoke
-        for decln in psy2_declarations:
-            invoke_sub_arrays.add(decln)
+        # Set the argument list for the PSy2 subroutine now that we have it
+        invoke_sub_arrays.args = psy2_dummy_args
 
         # Add content from the schedule
         self.schedule.gen_code(invoke_sub_arrays)
