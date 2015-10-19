@@ -758,16 +758,19 @@ class DynInvoke(Invoke):
         invoke_sub.add(CommentGen(invoke_sub, ""))
         invoke_sub.add(CommentGen(invoke_sub, " Initialise field proxies"))
         invoke_sub.add(CommentGen(invoke_sub, ""))
-        for arg in self.psy_unique_vars:
+
+        fields = self.unique_args("gh_field", proxy=False)
+        for fname in fields:
+            arg = fields[fname]
             psy2_args = []
             if arg.vector_size > 1:
                 for idx in range(1, arg.vector_size+1):
-                    lhs_name = arg.proxy_name+"("+str(idx)+")"
+                    lhs_name = arg.proxy_name + "("+str(idx)+")"
                     invoke_sub.add(AssignGen(invoke_sub,
                                    lhs=lhs_name,
-                                   rhs=arg.name+"("+str(idx)+")%get_proxy()"))
+                                   rhs=arg.name + "("+str(idx)+")%get_proxy()"))
                     psy2_caller_args.append(lhs_name+"%data")
-                    psy2_args.append(arg.proxy_name+"_"+str(idx))
+                    psy2_args.append(arg.proxy_name + "_"+str(idx))
             else:
                 invoke_sub.add(AssignGen(invoke_sub, lhs=arg.proxy_name,
                                          rhs=arg.name+"%get_proxy()"))
@@ -789,6 +792,11 @@ class DynInvoke(Invoke):
             invoke_sub.add(TypeDeclGen(invoke_sub,
                            datatype="field_proxy_type",
                            entity_decls=field_proxy_decs))
+        op_proxy_decs = self.unique_declarations("gh_operator", proxy=True)
+        if len(op_proxy_decs) > 0:
+            invoke_sub.add(TypeDeclGen(invoke_sub,
+                           datatype="operator_proxy_type",
+                           entity_decls=op_proxy_decs))
 
         # Initialise the number of layers
         invoke_sub.add(CommentGen(invoke_sub, ""))
@@ -880,6 +888,14 @@ class DynInvoke(Invoke):
                          "wv(:) => null()"]
             invoke_sub.add(DeclGen(invoke_sub, datatype="real", pointer=True,
                            kind="r_def", entity_decls=decl_list))
+            weight_names = ["wh", "wv"]
+            invoke_sub_arrays.add(DeclGen(invoke_sub, datatype="real",
+                                          kind="r_def",
+                                          dimension=":",
+                                          entity_decls=weight_names))
+            psy2_caller_args.extend(weight_names)
+            psy2_dummy_args.extend(weight_names)
+
             if len(self._psy_unique_qr_vars) > 1:
                 raise GenerationError(
                     "Oops, not yet coded for multiple qr values")
@@ -956,6 +972,7 @@ class DynInvoke(Invoke):
                 psy2_dummy_args.append(dmap_name)
 
                 invoke_sub.add(AssignGen(invoke_sub, lhs=dmap_name,
+                                         pointer=True,
                                          rhs=name_on_space+"%"+\
                                          arg_on_space.ref_name+\
                                          "%get_dofmap()"))
@@ -1015,7 +1032,7 @@ class DynInvoke(Invoke):
                                        pointer=True,
                                        entity_decls=[fs_descriptor.\
                                                      orientation_name+\
-                                                     "(:) => null()"]))
+                                                     "(:,:) => null()"]))
                 invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
                                               datatype="integer",
                                               intent="in",
@@ -1030,8 +1047,7 @@ class DynInvoke(Invoke):
                 invoke_sub.add(AssignGen(invoke_sub, pointer=True,
                                          lhs=fs_descriptor.orientation_name,
                                          rhs=name_on_space + "%" +
-                                         field_on_space[function_space].\
-                                         ref_name +
+                                         arg_on_space.ref_name +
                                          "%get_orientation(" +
                                          dofmap_args + ")"))
 
