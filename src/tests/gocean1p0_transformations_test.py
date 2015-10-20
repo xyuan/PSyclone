@@ -11,11 +11,13 @@
 
 from parse import parse
 from psyGen import PSyFactory
-from transformations import TransformationError,\
-                            LoopFuseTrans, OMPParallelTrans,\
-                            GOceanLoopFuseTrans,\
-                            GOceanOMPParallelLoopTrans,\
-                            GOceanOMPLoopTrans
+from transformations import TransformationError, \
+                            LoopFuseTrans, OMPParallelTrans, \
+                            GOceanLoopFuseTrans, \
+                            GOceanOMPParallelLoopTrans, \
+                            GOceanOMPLoopTrans, \
+                            OpenACCParallelTrans, \
+                            OpenACCDataTrans
 from generator import GenerationError
 import os
 import pytest
@@ -787,3 +789,75 @@ def test_omp_schedule_auto_with_chunk():
     the omp schedule as "auto" but try to provide a chunk size '''
     with pytest.raises(TransformationError):
         _ = GOceanOMPLoopTrans(omp_schedule="auto,4")
+
+
+def test_acc_parallel_not_a_loop():
+    ''' Test that we raise an appropriate error if we attempt
+    to apply the OpenACC Parallel transformation to something that
+    is not a loop '''
+    _, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
+    schedule = invoke.schedule
+
+    acct = OpenACCParallelTrans()
+    # Attempt to (erroneously) apply the OpenACC Parallel transformation
+    # to the schedule rather than a loop
+    with pytest.raises(TransformationError):
+        _, _ = acct.apply(schedule)
+
+
+def test_acc_parallel_trans():
+    ''' Test that we can apply an OpenACC parallel transformation
+    to a loop '''
+    psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
+    schedule = invoke.schedule
+
+    acct = OpenACCParallelTrans()
+    # Apply the OpenACC Parallel transformation
+    # to the first loop of the schedule
+    new_sched, _ = acct.apply(schedule.children[0])
+
+    invoke.shedule = new_sched
+
+    code = str(psy.gen)
+
+    acc_idx = -1
+    acc_end_idx = -1
+    do_idx = -1
+    for idx, line in enumerate(code.split('\n')):
+        if "!$acc parallel present(" in line:
+            acc_idx = idx
+        if (do_idx == -1) and "DO j" in line:
+            do_idx = idx
+        if "!$acc end parallel" in line:
+            acc_end_idx = idx
+
+    assert acc_idx != -1 and acc_end_idx != -1
+    assert acc_end_idx > acc_idx
+    assert do_idx == (acc_idx + 1)
+
+
+def test_acc_data_not_a_schedule():
+    ''' Test that we raise an appropriate error if we attempt to apply
+    and OpenACC Data transformation to something that is not a Schedule '''
+    psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
+    schedule = invoke.schedule
+
+    acct = OpenACCDataTrans()
+
+    with pytest.raises(TransformationError):
+        _, _ = acct.apply(schedule.children[0])
+
+
+def test_acc_data_correct_pcopy():
+    ''' Test that we correctly generate the arguments to the pcopy
+    clause of an OpenACC data region '''
+    psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
+    schedule = invoke.schedule
+
+    accpt = OpenACCParallelTrans()
+    accdt = OpenACCDataTrans()
+    new_sched, _ = acct.apply(schedule)
+
+    for child in schedule.children:
+       pass
+    assert 1 == 0 
