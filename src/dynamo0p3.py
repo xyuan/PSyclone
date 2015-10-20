@@ -847,10 +847,15 @@ class DynInvoke(Invoke):
 
         for op in op_list.keys():
             ncell3d_name = op + "_ncell_3d"
-            psy2_caller_args.append(ncell3d_name)
+            psy2_caller_args.append(op+"%ncell_3d")
             psy2_dummy_args.append(ncell3d_name)
-            invoke_sub.add(AssignGen(invoke_sub, lhs=ncell3d_name,
-                                     rhs=op+"%ncell_3d"))
+            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                          datatype="integer",
+                                          intent="in",
+                                          entity_decls=[ncell3d_name]))
+            # Get the operator proxy
+            invoke_sub.add(AssignGen(invoke_sub, lhs=op_list[op].proxy_name,
+                                     rhs=op_list[op].name+"%get_proxy()"))
             stencil_name = op + "_local_stencil"
             psy2_caller_args.append(stencil_name)
             psy2_dummy_args.append(stencil_name)
@@ -1491,7 +1496,7 @@ class DynKern(Kern):
 
         # create the argument list
         arglist = []
-        if not raw_arrays and self._arguments.has_operator:
+        if self._arguments.has_operator:
             # 0.5: provide cell position
             arglist.append("cell")
             if my_type == "subroutine":
