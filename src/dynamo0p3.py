@@ -629,13 +629,14 @@ class DynInvoke(Invoke):
                     return descriptor
         return None
 
-    def is_coloured(self):
-        ''' Returns true if at least one of the loops in the
-        schedule of this invoke has been coloured '''
+    def coloured_loops(self):
+        '''Returns a list of those Loops in the schedule of this
+        Invoke that are coloured'''
+        loops = []
         for loop in self.schedule.loops():
             if loop.loop_type == "colours":
-                return True
-        return False
+                loops.append(loop)
+        return loops
 
     def ndf_name(self, func_space):
         ''' A convenience method that returns an ndf name for a
@@ -966,11 +967,11 @@ class DynInvoke(Invoke):
                                        pointer=True,
                                        entity_decls=[dmap_name+\
                                                      "(:,:) => null()"]))
-                #TODO Is it correct that the map is a (ptr to a) 2D array in
-                # PSy1 but is a 1D array in the kernel (and in PSy2)?
+                #TODO can we get at the extents of the dofmap array so that they
+                # can be made explicit in the PSy2 routine?
                 invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
                                               datatype="integer",
-                                              dimension=ndf_name,
+                                              dimension=":,:",#ndf_name,
                                               intent="in",
                                               entity_decls=[dmap_name]))
                 psy2_caller_args.append(dmap_name)
@@ -1041,20 +1042,16 @@ class DynInvoke(Invoke):
                 invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
                                               datatype="integer",
                                               intent="in",
-                                              dimension=self.ndf_name(function_space),
+                                              dimension=self.ndf_name(function_space)+",ncells",
                                               entity_decls=[fs_descriptor.orientation_name]))
                 psy2_caller_args.append(fs_descriptor.orientation_name)
                 psy2_dummy_args.append(fs_descriptor.orientation_name)
 
-                # TODO do we still need to worry about a colour map
-                # if we're getting the whole orientation array?
-                dofmap_args = ""
                 invoke_sub.add(AssignGen(invoke_sub, pointer=True,
                                          lhs=fs_descriptor.orientation_name,
                                          rhs=name_on_space + "%" +
                                          arg_on_space.ref_name +
-                                         "%get_orientation(" +
-                                         dofmap_args + ")"))
+                                         "%get_orientation()"))
 
         if var_list:
             # declare ndf and undf for all function spaces
@@ -1086,13 +1083,54 @@ class DynInvoke(Invoke):
                                           intent="in",
                                           entity_decls=psy2_operator_declarations))
 
-        if self.is_coloured():
-            # Add declarations of the colour map and array holding the
-            # no. of cells of each colour
-            invoke_sub.add(DeclGen(parent, datatype="integer",
-                                   pointer=True,
-                                   entity_decls=["cmap(:,:)",
-                                                 "ncp_colour(:)"]))
+        # We must pass in the colour maps for each function space that
+        # has been coloured
+        cloops = self.coloured_loops()
+        if cloops:
+            coloured_spaces = []
+            for loop in cloops:
+                if loop.field_space not in coloured_spaces:
+                    coloured_spaces.append(loop.field_space)
+                    suffix = "_" + loop.field_space
+                    # Add declarations of the colour map and array holding the
+                    # no. of cells of each colour for each space
+                    invoke_sub.add(DeclGen(parent, datatype="integer",
+                                           pointer=True,
+                                           entity_decls=["cmap"+suffix+"(:,:)",
+                                                         "ncp_colour"+suffix+"(:)"]))
+                    # Declaration of variable to hold the number of colours
+                    invoke_sub.add(DeclGen(parent, datatype="integer",
+                                           entity_decls=["ncolour"+suffix]))
+
+                    # Add the look-up of the colouring map for this kernel
+                    # call
+                    invoke_sub.add(CommentGen(invoke_sub, ""))
+                    invoke_sub.add(CommentGen(invoke_sub, " Look-up colour maps"))
+                    invoke_sub.add(CommentGen(invoke_sub, ""))
+                    name = arg.proxy_name_indexed + \
+                           "%" + arg.ref_name + "%get_colours"
+                    colour_vars = ["ncolour"+suffix,
+                                   "ncp_colour"+suffix,
+                                   "cmap"+suffix]
+                    invoke_sub.add(CallGen(invoke_sub,
+                                           name=name,
+                                           args=colour_vars))
+                    invoke_sub.add(CommentGen(invoke_sub, ""))
+
+                    # Pass these down to PSy2 and declare them there too
+                    psy2_caller_args.extend(colour_vars)
+                    psy2_dummy_args.extend(colour_vars)
+                    invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                                  datatype="integer",
+                                                  intent="in",
+                                                  entity_decls=["ncolour"+suffix]))
+                    invoke_sub_arrays.add(\
+                                    DeclGen(invoke_sub_arrays,
+                                            datatype="integer",
+                                            intent="in",
+                                            entity_decls=\
+                                            ["cmap"+suffix+"(:,:)",
+                                             "ncp_colour"+suffix+"(ncolour"+suffix+")"]))
 
         if self.qr_required:
             # add calls to compute the values of any basis arrays
@@ -1296,12 +1334,10 @@ class DynLoop(Loop):
         # Set-up loop bounds
         self._start = "1"
         if self._loop_type == "colours":
-            self._stop = "ncolour"
+            self._stop = "ncolour_"+self._field_space
         elif self._loop_type == "colour":
-            self._stop = "ncp_colour(colour)"
+            self._stop = "ncp_colour_"+self._field_space+"(colour)"
         else:
-            #self._stop = self.field.proxy_name_indexed + "%" + \
-            #    self.field.ref_name + "%get_ncell()"
             self._stop = "ncells"
         Loop.gen_code(self, parent)
 
@@ -1603,13 +1639,21 @@ class DynKern(Kern):
             if my_type == "subroutine":
                 parent.add(DeclGen(parent, datatype="integer", intent="in",
                            entity_decls=[ndf_name]))
+            if self.is_coloured(unique_fs):
+                # If this kernel call is within a coloured loop that
+                # is over the this space then we must use the colour
+                # map associated with that space for any dofmap/orientation
+                # look-ups
+                dofmap_arg = "cmap_"+unique_fs+"(colour, cell)"
+            else:
+                dofmap_arg = "cell"
             # 3.1.1 Provide additional compulsory arguments if there
             # is a field on this space
             if self.field_on_space(unique_fs):
                 undf_name = self._fs_descriptors.undf_name(unique_fs)
                 arglist.append(undf_name)
                 map_name = self._fs_descriptors.map_name(unique_fs)
-                arglist.append(map_name)
+                arglist.append(map_name+"(:,"+dofmap_arg+")")
                 if my_type == "subroutine":
                     # ndf* declarations need to be before argument
                     # declarations as some compilers don't like
@@ -1685,7 +1729,7 @@ class DynKern(Kern):
                                            entity_decls=[diff_basis_name]))
                 if descriptor.requires_orientation:
                     orientation_name = descriptor.orientation_name
-                    arglist.append(orientation_name)
+                    arglist.append(orientation_name+"(:,"+dofmap_arg+")")
                     if my_type == "subroutine":
                         parent.add(DeclGen(parent, datatype="integer",
                                            intent="in", dimension=ndf_name,
@@ -1778,40 +1822,16 @@ class DynKern(Kern):
         grandparent.add(DeclGen(grandparent, datatype="integer",
                                 entity_decls=["cell"]))
 
-        # If this kernel is being called from within a coloured
-        # loop then we have to look-up the colour map
+        # Correctness checking
         if self.is_coloured():
-
             # Find which argument object has INC access in order to look-up
             # the colour map
             try:
-                arg = self.incremented_field
+                _ = self.incremented_field
             except FieldNotFoundError:
                 # TODO Warn that we're colouring a kernel that has
                 # no field object with INC access
-                arg = self.written_field
-
-            new_grandparent, position = grandparent.start_parent_loop()
-            # Add the look-up of the colouring map for this kernel
-            # call
-            new_grandparent.add(CommentGen(new_grandparent, ""),
-                           position=["before", position])
-            new_grandparent.add(CommentGen(new_grandparent, " Look-up colour map"),
-                           position=["before", position])
-            new_grandparent.add(CommentGen(new_grandparent, ""),
-                           position=["before", position])
-            name = arg.proxy_name_indexed + \
-                "%" + arg.ref_name + "%get_colours"
-            new_grandparent.add(CallGen(new_grandparent,
-                                   name=name,
-                                   args=["ncolour", "ncp_colour", "cmap"]),
-                           position=["before", position])
-            new_grandparent.add(CommentGen(new_grandparent, ""),
-                           position=["before", position])
-
-            # We must pass the colour map to the dofmap/orientation
-            # lookup rather than just the cell
-            dofmap_args = "cmap(colour, cell)"
+                pass
         else:
             # This kernel call has not been coloured
             #  - is it OpenMP parallel, i.e. are we a child of
@@ -1829,7 +1849,6 @@ class DynKern(Kern):
                                           "be coloured in order to be "
                                           "parallelised with OpenMP".
                                           format(self._name))
-            dofmap_args = "cell"
 
         # create a maps_required logical which we can use to add in
         # spacer comments if necessary
