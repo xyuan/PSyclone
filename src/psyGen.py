@@ -1184,10 +1184,16 @@ class Kern(Call):
                                  "{1} access".\
                                  format(self.name, mapping["write"]))
 
-    def is_coloured(self):
-        ''' Returns true if this kernel is being called from within a
-        coloured loop '''
-        return self.parent.loop_type == "colour"
+    def is_coloured(self, fspace=""):
+        ''' Returns True if this kernel is called from within a coloured
+        loop over the specified function space. If function space is not
+        specified then the space of the coloured loop is ignored. '''
+        if self.parent.loop_type == "colour":
+            if fspace:
+                return fspace == self.parent.field_space
+            else:
+                return True
+        return False
 
 
 class Arguments(object):
