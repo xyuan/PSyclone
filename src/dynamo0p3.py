@@ -1815,13 +1815,6 @@ class DynKern(Kern):
         from f2pygen import CallGen, DeclGen, AssignGen, UseGen, CommentGen, \
             IfThenGen, SubroutineGen
 
-        # Although we now have two levels to the PSy layer, in the Abstract
-        # Syntax tree these levels are siblings.
-        # TODO work out how to add calls to PSy1 rather than PSy2
-        grandparent = parent.parent
-        grandparent.add(DeclGen(grandparent, datatype="integer",
-                                entity_decls=["cell"]))
-
         # Correctness checking
         if self.is_coloured():
             # Find which argument object has INC access in order to look-up
@@ -1850,6 +1843,20 @@ class DynKern(Kern):
                                           "parallelised with OpenMP".
                                           format(self._name))
 
+        # This kernel may or may not be called from within a coloured
+        # loop and that loop may or may not have directives applied to
+        # it.  Therefore we must take care in our search for our
+        # enclosing Subroutine
+        new_parent = parent
+        while new_parent:
+            new_parent = new_parent.parent
+            if isinstance(new_parent, SubroutineGen):
+                break
+        parent_routine = new_parent
+
+        parent_routine.add(DeclGen(parent, datatype="integer",
+                                   entity_decls=["cell"]))
+
         # create a maps_required logical which we can use to add in
         # spacer comments if necessary
         maps_required = False
@@ -1859,12 +1866,14 @@ class DynKern(Kern):
 
         # orientation arrays initialisation and their declarations is
         # handled in DynInvoke::gen_code
-        arglist = self._create_arg_list(grandparent, raw_arrays=True)
+        arglist = self._create_arg_list(parent, raw_arrays=True)
 
         # generate the kernel call and associated use statement
         parent.add(CallGen(parent, self._name, arglist))
-        grandparent.parent.add(UseGen(grandparent.parent, name=self._module_name,
-                                 only=True, funcnames=[self._name]))
+        parent_routine.add(UseGen(parent_routine,
+                                  name=self._module_name,
+                                  only=True,
+                                  funcnames=[self._name]))
         # 5: Fix for boundary_dofs array in matrix_vector_mm_code
         if self.name == "matrix_vector_mm_code":
             # In matrix_vector_mm_code, all fields are on the same
@@ -1874,8 +1883,8 @@ class DynKern(Kern):
             enforce_bc_arg = self.arguments.args[0]
             space_name = "w2"
             self._name_space_manager = NameSpaceFactory().create()
-            # Look-up the variable names that we created when generating the PSy2 
-            # subroutine in DynInvoke::gen_code()
+            # Look-up the variable names that we created when
+            # generating the PSy2 subroutine in DynInvoke::gen_code()
             fs_name = self._name_space_manager.create_name(context="psy2",
                                                            label="bc_fs_name")
             boundary_dofs_name = self._name_space_manager.create_name(
@@ -1885,24 +1894,24 @@ class DynKern(Kern):
             ndf_name = self.fs_descriptors.ndf_name(kern_func_space_name)
             undf_name = self.fs_descriptors.undf_name(kern_func_space_name)
             map_name = self.fs_descriptors.map_name(kern_func_space_name)
-            grandparent.add(UseGen(grandparent, name="function_space_mod",
-                                   only=True, funcnames=[space_name]))
-            new_grandparent, position = grandparent.start_parent_loop()
-            grandparent.add(CommentGen(grandparent, ""))
-            if_then = IfThenGen(grandparent, fs_name+" .eq. "+space_name)
-            grandparent.add(if_then)
+            parent.add(UseGen(parent, name="function_space_mod",
+                              only=True, funcnames=[space_name]))
+
+            parent_routine.add(CommentGen(parent_routine, ""))
+            if_then = IfThenGen(parent_routine, fs_name+" .eq. "+space_name)
+            parent_routine.add(if_then)
             nlayers_name = self._name_space_manager.create_name(
                 root_name="nlayers", context="PSyVars", label="nlayers")
-            grandparent.add(UseGen(grandparent,
-                                   name="enforce_bc_kernel_mod",
-                                   only=True,
-                                   funcnames=["enforce_bc_code"]))
+            parent.add(UseGen(parent,
+                              name="enforce_bc_kernel_mod",
+                              only=True,
+                              funcnames=["enforce_bc_code"]))
             if_then.add(CallGen(if_then, "enforce_bc_code",
                                 [nlayers_name,
                                  enforce_bc_arg.proxy_name,
                                  ndf_name, undf_name, map_name,
                                  boundary_dofs_name]))
-            grandparent.add(CommentGen(grandparent, ""))
+            parent_routine.add(CommentGen(parent_routine, ""))
 
 
 class FSDescriptor(object):
