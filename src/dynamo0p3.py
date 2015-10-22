@@ -831,12 +831,6 @@ class DynInvoke(Invoke):
                                       intent="in",
                                       entity_decls = [ncells_name,
                                                       nlayers_name]))
-        invoke_sub.add(AssignGen(invoke_sub, lhs=nlayers_name,
-                       rhs=first_var.proxy_name_indexed + "%" +
-                       first_var.ref_name + "%get_nlayers()"))
-        invoke_sub.add(AssignGen(invoke_sub, lhs=ncells_name,
-                                 rhs=first_var.proxy_name_indexed + "%" +
-                                 first_var.ref_name + "%get_ncell()"))
 
         # If we have one or more operators then initialise arrays for them
         op_list = self.unique_args("gh_operator", proxy=True)
@@ -912,11 +906,19 @@ class DynInvoke(Invoke):
             qr_vars = ["nqp_h", "nqp_v"]
             for qr_var in qr_ptr_vars.keys():
                 invoke_sub.add(AssignGen(invoke_sub, pointer=True, lhs=qr_var,
-                               rhs=qr_var_name + "%get_" +
-                               qr_ptr_vars[qr_var] + "()"))
+                                         rhs=qr_var_name + "%get_" +
+                                         qr_ptr_vars[qr_var] + "()"))
             for qr_var in qr_vars:
                 invoke_sub.add(AssignGen(invoke_sub, lhs=qr_var,
                                rhs=qr_var_name + "%get_" + qr_var + "()"))
+
+        # Now that we've looked-up proxies we can get at nlayers and ncells
+        invoke_sub.add(AssignGen(invoke_sub, lhs=nlayers_name,
+                       rhs=first_var.proxy_name_indexed + "%" +
+                       first_var.ref_name + "%get_nlayers()"))
+        invoke_sub.add(AssignGen(invoke_sub, lhs=ncells_name,
+                                 rhs=first_var.proxy_name_indexed + "%" +
+                                 first_var.ref_name + "%get_ncell()"))
 
         psy1_operator_declarations = []
         psy2_operator_declarations = []
