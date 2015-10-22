@@ -138,7 +138,7 @@ layer code appropriately. By default this script will generate
     > python generator.py algspec.f90
     > python generator.py -oalg alg.f90 -opsy psy.f90 -api dynamo0.3 algspec.f90
 
-The generator.py script has an optional **-s** option which allows the
+The generator.py script has an optional **-s** flag which allows the
 user to specify a script file to modify the PSy layer as
 required. Script files may be specified without a path. For
 example:
@@ -189,3 +189,8 @@ below does the same thing as the example in the
 Of course the script may apply as many transformations as is required
 for a particular schedule and may apply transformations to all the
 schedules (i.e. invokes) contained within the PSy layer.
+
+An example of the use of transformations scripts can be found in the
+examples/dynamo/eg3 directory. Please read the examples/dynamo/README
+file first as it explains how to run the example.
+
