@@ -1487,6 +1487,21 @@ class DynKern(Kern):
         ''' Returns a Quadrature-rule name for this Kernel. '''
         return self._qr_name
 
+    def dofmap_index(self, fspace):
+        ''' Return the index into the dofmap on the supplied function
+        space. If this space has been coloured then the indexing must
+        use the colour map for that space. '''
+        if self.is_coloured(fspace):
+            # If this kernel call is within a coloured loop that
+            # is over the specified space then we must use the colour
+            # map associated with that space for any dofmap/orientation
+            # look-ups
+            darg = "cmap_" + fspace + "(colour, cell)"
+        else:
+            darg = "cell"
+        darg =  "(:," + darg + ")"
+        return darg
+
     def local_vars(self):
         ''' Returns the names used by the Kernel that vary from one
         invocation to the next and therefore require privatisation
@@ -1639,21 +1654,13 @@ class DynKern(Kern):
             if my_type == "subroutine":
                 parent.add(DeclGen(parent, datatype="integer", intent="in",
                            entity_decls=[ndf_name]))
-            if self.is_coloured(unique_fs):
-                # If this kernel call is within a coloured loop that
-                # is over the this space then we must use the colour
-                # map associated with that space for any dofmap/orientation
-                # look-ups
-                dofmap_arg = "cmap_"+unique_fs+"(colour, cell)"
-            else:
-                dofmap_arg = "cell"
             # 3.1.1 Provide additional compulsory arguments if there
             # is a field on this space
             if self.field_on_space(unique_fs):
                 undf_name = self._fs_descriptors.undf_name(unique_fs)
                 arglist.append(undf_name)
                 map_name = self._fs_descriptors.map_name(unique_fs)
-                arglist.append(map_name+"(:,"+dofmap_arg+")")
+                arglist.append(map_name+self.dofmap_index(unique_fs))
                 if my_type == "subroutine":
                     # ndf* declarations need to be before argument
                     # declarations as some compilers don't like
@@ -1729,7 +1736,7 @@ class DynKern(Kern):
                                            entity_decls=[diff_basis_name]))
                 if descriptor.requires_orientation:
                     orientation_name = descriptor.orientation_name
-                    arglist.append(orientation_name+"(:,"+dofmap_arg+")")
+                    arglist.append(orientation_name+self.dofmap_index(unique_fs))
                     if my_type == "subroutine":
                         parent.add(DeclGen(parent, datatype="integer",
                                            intent="in", dimension=ndf_name,
@@ -1905,7 +1912,9 @@ class DynKern(Kern):
             kern_func_space_name = enforce_bc_arg.function_space
             ndf_name = self.fs_descriptors.ndf_name(kern_func_space_name)
             undf_name = self.fs_descriptors.undf_name(kern_func_space_name)
-            map_name = self.fs_descriptors.map_name(kern_func_space_name)
+            map_name = self.fs_descriptors.map_name(kern_func_space_name) + \
+                       self.dofmap_index(kern_func_space_name)
+
             parent.add(UseGen(parent, name="function_space_mod",
                               only=True, funcnames=[space_name]))
 
