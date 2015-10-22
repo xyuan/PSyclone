@@ -1101,9 +1101,6 @@ class DynInvoke(Invoke):
                     # Declaration of variable to hold the number of colours
                     invoke_sub.add(DeclGen(parent, datatype="integer",
                                            entity_decls=["ncolour"+suffix]))
-            # Declaration of variable to hold the number of colours
-            invoke_sub.add(DeclGen(parent, datatype="integer",
-                                   entity_decls=["ncolour"]))
 
                     # Add the look-up of the colouring map for this kernel
                     # call
@@ -1912,9 +1909,9 @@ class DynKern(Kern):
             parent.add(UseGen(parent, name="function_space_mod",
                               only=True, funcnames=[space_name]))
 
-            parent_routine.add(CommentGen(parent_routine, ""))
-            if_then = IfThenGen(parent_routine, fs_name+" .eq. "+space_name)
-            parent_routine.add(if_then)
+            parent.add(CommentGen(parent, ""))
+            if_then = IfThenGen(parent, fs_name+" .eq. "+space_name)
+            parent.add(if_then)
             nlayers_name = self._name_space_manager.create_name(
                 root_name="nlayers", context="PSyVars", label="nlayers")
             parent.add(UseGen(parent,
@@ -1926,7 +1923,7 @@ class DynKern(Kern):
                                  enforce_bc_arg.proxy_name,
                                  ndf_name, undf_name, map_name,
                                  boundary_dofs_name]))
-            parent_routine.add(CommentGen(parent_routine, ""))
+            parent.add(CommentGen(parent, ""))
 
 
 class FSDescriptor(object):
