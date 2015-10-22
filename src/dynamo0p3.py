@@ -861,6 +861,7 @@ class DynInvoke(Invoke):
             psy2_caller_args.append(stencil_name)
             psy2_dummy_args.append(stencil_name)
             invoke_sub.add(AssignGen(invoke_sub, lhs=stencil_name,
+                                     pointer=True,
                                      rhs=op+"%local_stencil"))
             fspace = op_list[op].function_space
             name = self.ndf_name(fspace)
