@@ -970,11 +970,15 @@ class DynInvoke(Invoke):
                                        pointer=True,
                                        entity_decls=[dmap_name+\
                                                      "(:,:) => null()"]))
-                #TODO can we get at the extents of the dofmap array so that they
-                # can be made explicit in the PSy2 routine?
+                # The second dimension of the dofmap is indexed from zero
+                # and if we convert from a pointer (to the dofmap) to a
+                # simple array then this information is lost. Therefore
+                # we must explicitly specify the bounds (well, strictly
+                # just the lower bounds) of the dummy argument.
                 invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
                                               datatype="integer",
-                                              dimension=":,:",#ndf_name,
+                                              dimension=ndf_name + \
+                                              ",0:" + ncells_name,
                                               intent="in",
                                               entity_decls=[dmap_name]))
                 psy2_caller_args.append(dmap_name)
