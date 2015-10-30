@@ -14,7 +14,7 @@
     checks before calling the base class for the actual
     transformation. '''
 
-from psyGen import Transformation
+from psyGen import Transformation, GenerationError
 
 VALID_OMP_SCHEDULES = ["runtime", "static", "dynamic", "guided", "auto"]
 
@@ -25,7 +25,7 @@ class TransformationError(Exception):
 
     def __init__(self, value):
         Exception.__init__(self, value)
-        self.value = "Transformation Error: "+value
+        self.value = "Transformation Error: "+str(value)
 
     def __str__(self):
         return repr(self.value)
@@ -960,6 +960,60 @@ class GOConstLoopBoundsTrans(Transformation):
         from undoredo import Memento
         keep = Memento(node, self)
 
-        node.const_loop_bounds = const_bounds
+        try:
+            node.const_loop_bounds = const_bounds
+        except GenerationError as err:
+            raise TransformationError(err.message)
+        return node, keep
 
+
+class DereferenceTrans(Transformation):
+    ''' Switch on (or off) the generation of the introduction of a
+    de-referencing routine into the PSy layer, e.g.:
+
+    >>> from parse import parse
+    >>> from psyGen import PSyFactory
+    >>> import os
+    >>> TEST_API = "gocean1.0"
+    >>> _,info = parse(os.path.join("tests", "test_files", "gocean1p0",
+    >>>                             "single_invoke.f90"),
+    >>>                api=TEST_API)
+    >>> psy = PSyFactory(TEST_API).create(info)
+    >>> invoke = psy.invokes.get('invoke_0_compute_cu')
+    >>> schedule = invoke.schedule
+    >>>
+    >>> from transformations import DereferenceTrans
+    >>> dtrans = DereferenceTrans()
+    >>>
+    >>> newsched, _ = dtrans.apply(schedule)
+    >>> # or, to turn off use of a dereferencing routine
+    >>> # newsched, _ = dtrans.apply(schedule, deref=False)
+    >>>
+    >>> newsched.view()
+
+    '''
+    def __str__(self):
+        return "Split each PSy-layer routine into two with the "\
+            "introduction of a de-referencing routine"
+
+    @property
+    def name(self):
+        ''' Return the name of the Transformation as a string '''
+        return "DereferenceTrans"
+
+    def apply(self, node, deref=True):
+
+        # Check node is a Schedule
+        from psyGen import Schedule
+        if not isinstance(node, Schedule):
+            raise TransformationError("Error in DereferenceTrans: "
+                                      "node is not a Schedule")
+
+        from undoredo import Memento
+        keep = Memento(node, self)
+
+        try:
+            node.deref_routine = deref
+        except GenerationError as err:
+            raise TransformationError(err.message)
         return node, keep
