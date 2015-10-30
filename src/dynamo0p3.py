@@ -416,6 +416,8 @@ class DynamoPSy(PSy):
                               funcnames=["r_def"]))
         # add all invoke specific information
         self.invokes.gen_code(psy_module)
+        # inline kernels where requested
+        self.inline(psy_module)
         # return the generated code
         return psy_module.root
 
@@ -1896,10 +1898,13 @@ class DynKern(Kern):
 
         # generate the kernel call and associated use statement
         parent.add(CallGen(parent, self._name, arglist))
-        parent_routine.add(UseGen(parent_routine,
-                                  name=self._module_name,
-                                  only=True,
-                                  funcnames=[self._name]))
+
+        if not self.module_inline:
+            parent_routine.add(UseGen(parent_routine,
+                                      name=self._module_name,
+                                      only=True,
+                                      funcnames=[self._name]))
+
         # 5: Fix for boundary_dofs array in matrix_vector_mm_code
         if self.name == "matrix_vector_mm_code":
             # In matrix_vector_mm_code, all fields are on the same
