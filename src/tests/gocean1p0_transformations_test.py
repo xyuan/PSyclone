@@ -13,7 +13,8 @@ from parse import parse
 from psyGen import PSyFactory
 from transformations import TransformationError, GOConstLoopBoundsTrans,\
     LoopFuseTrans, OMPParallelTrans, GOceanOMPParallelLoopTrans,\
-    GOceanOMPLoopTrans, KernelModuleInlineTrans, GOceanLoopFuseTrans
+    GOceanOMPLoopTrans, KernelModuleInlineTrans, GOceanLoopFuseTrans,\
+    DereferenceTrans
 from generator import GenerationError
 import os
 from utils import count_lines
@@ -41,6 +42,89 @@ def get_invoke(algfile, idx):
     return psy, invoke
 
 
+def test_deref_not_schedule():
+    ''' Check that we raise an error if we attempt to apply the
+    constant loop-bounds transformation to something that is
+    not a Schedule '''
+    _, invoke = get_invoke("test11_different_iterates_over_"
+                           "one_invoke.f90", 0)
+    schedule = invoke.schedule
+    dtrans = DereferenceTrans()
+
+    with pytest.raises(TransformationError):
+        _, _ = dtrans.apply(schedule.children[0])
+
+
+def test_deref_default():
+    ''' Check that we  introduce a de-referencing
+    routine by default '''
+    psy, invoke = get_invoke("test11_different_iterates_over_"
+                           "one_invoke.f90", 0)
+    schedule = invoke.schedule
+    dtrans = DereferenceTrans()
+
+    # First check that the generated code contains a de-referencing
+    # routine by default
+    gen = str(psy.gen)
+    print gen
+    expected = ("CALL invoke_0_arrays(nx, ny, istop, jstop, ncycle, "
+                "cv_fld%data, p_fld%data, v_fld%data, p_fld%grid%tmask)\n"
+                "    END SUBROUTINE invoke_0\n"
+                "    SUBROUTINE invoke_0_arrays(nx, ny, istop, jstop, "
+                "ncycle, cv_fld, p_fld, v_fld, tmask)\n"
+                "      USE kernel_scalar_int, ONLY: bc_ssh_code\n"
+                "      USE kernel_ne_offset_mod, ONLY: compute_cv_code\n"
+                "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+                "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: "
+                "cv_fld, p_fld, v_fld\n"
+                "      INTEGER, intent(inout) :: ncycle\n"
+                "      INTEGER, intent(inout), dimension(nx,ny) :: tmask\n" )
+    assert expected in gen
+
+
+def test_deref_toggle_off():
+    ''' Check that we can turn off the introduction of a de-referencing
+    routine '''
+    psy, invoke = get_invoke("test11_different_iterates_over_"
+                             "one_invoke.f90", 0)
+    schedule = invoke.schedule
+    dtrans = DereferenceTrans()
+
+    new_sched, _ = dtrans.apply(schedule, deref=False)
+    invoke.schedule = new_sched
+    gen = str(psy.gen)
+    print gen
+    expected = ( "! Look-up loop bounds\n"
+                 "      istop = cv_fld%grid%simulation_domain%xstop\n"
+                 "      jstop = cv_fld%grid%simulation_domain%ystop\n"
+                 "      !\n"
+                 "      DO j=2,jstop-1\n"
+                 "        DO i=2,istop\n"
+                 "          CALL compute_cv_code(i, j, cv_fld%data, "
+                 "p_fld%data, v_fld%data)\n"
+                 "        END DO \n"
+                 "      END DO \n"
+                 "      DO j=1,jstop+1\n"
+                 "        DO i=1,istop+1\n"
+                 "          CALL bc_ssh_code(i, j, ncycle, p_fld%data, "
+                 "p_fld%grid%tmask)\n" )
+    assert expected in gen
+
+
+def test_deref_no_const_loop_bounds():
+    ''' Check that an appropriate error is raised if we attempt to introduce
+    a de-referencing routine when constant loop bounds are switched off '''
+    psy, invoke = get_invoke("test11_different_iterates_over_"
+                             "one_invoke.f90", 0)
+    schedule = invoke.schedule
+    cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
+
+    new_sched, _ = dtrans.apply(schedule, deref=False)
+    invoke.schedule = new_sched
+    gen = str(psy.gen)
+
+
 def test_const_loop_bounds_not_schedule():
     ''' Check that we raise an error if we attempt to apply the
     constant loop-bounds transformation to something that is
@@ -61,14 +145,15 @@ def test_const_loop_bounds_toggle():
                              "one_invoke.f90", 0)
     schedule = invoke.schedule
     cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
 
     # First check that the generated code uses constant loop
     # bounds by default
     gen = str(psy.gen)
-
-    assert "INTEGER istop, jstop" in gen
-    assert "istop = cv_fld%grid%simulation_domain%xstop" in gen
-    assert "jstop = cv_fld%grid%simulation_domain%ystop" in gen
+    print gen
+    assert "INTEGER, intent(in) :: nx, ny, istop, jstop" in gen
+    assert "istop = p_fld%grid%simulation_domain%xstop" in gen
+    assert "jstop = p_fld%grid%simulation_domain%ystop" in gen
     assert "DO j=2,jstop-1" in gen
     assert "DO i=2,istop" in gen
 
@@ -76,17 +161,14 @@ def test_const_loop_bounds_toggle():
     # transformation has no effect (in this case)
     newsched, _ = cbtrans.apply(schedule)
     invoke.schedule = newsched
-    # Store the generated code as a string
-    gen = str(psy.gen)
-
-    assert "INTEGER istop, jstop" in gen
-    assert "istop = cv_fld%grid%simulation_domain%xstop" in gen
-    assert "jstop = cv_fld%grid%simulation_domain%ystop" in gen
-    assert "DO j=2,jstop-1" in gen
-    assert "DO i=2,istop" in gen
+    # Store the generated code as a string and check that it matches
+    # what we go the first time
+    gen_trans = str(psy.gen)
+    assert gen_trans == gen
 
     # Finally, test that we can turn-off constant loop bounds
-    newsched, _ = cbtrans.apply(schedule, const_bounds=False)
+    newsched0, _ = dtrans.apply(schedule, deref=False)
+    newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     invoke.schedule = newsched
     # Store the generated code as a string
     gen = str(psy.gen)
@@ -118,6 +200,7 @@ def test_loop_fuse_different_iterates_over():
     schedule = invoke.schedule
     lftrans = LoopFuseTrans()
     cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
 
     # Attempt to fuse two loops that are iterating over different
     # things
@@ -127,7 +210,8 @@ def test_loop_fuse_different_iterates_over():
 
     # Turn off constant loop bounds (which should have no effect)
     # and repeat
-    newsched, _ = cbtrans.apply(schedule, const_bounds=False)
+    newsched0, _ = dtrans.apply(schedule, deref=False)
+    newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     with pytest.raises(TransformationError):
         _, _ = lftrans.apply(newsched.children[0],
                              newsched.children[1])
@@ -159,6 +243,7 @@ def test_omp_parallel_loop():
 
     omp = GOceanOMPParallelLoopTrans()
     cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
     omp_sched, _ = omp.apply(schedule.children[0])
 
     invoke.schedule = omp_sched
@@ -168,17 +253,18 @@ def test_omp_parallel_loop():
                 "schedule(static)\n"
                 "      do j=2,jstop\n"
                 "        do i=2,istop+1\n"
-                "          call compute_cu_code(i, j, cu_fld%data, "
-                "p_fld%data, u_fld%data)\n"
+                "          call compute_cu_code(i, j, cu_fld, p_fld, u_fld)\n"
                 "        end do \n"
                 "      end do \n"
                 "      !$omp end parallel do")
     assert expected in gen
 
-    newsched, _ = cbtrans.apply(omp_sched, const_bounds=False)
+    newsched0, _ = dtrans.apply(omp_sched, deref=False)
+    newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     invoke.schedule = newsched
     gen = str(psy.gen)
     gen = gen.lower()
+    print gen
     expected = (
         "      !$omp parallel do default(shared), private(j,i), "
         "schedule(static)\n"
@@ -212,6 +298,7 @@ def test_omp_region_with_single_loop():
 
     ompr = OMPParallelTrans()
     cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
 
     omp_schedule, _ = ompr.apply(schedule.children[1])
 
@@ -235,8 +322,10 @@ def test_omp_region_with_single_loop():
 
     assert call_count == 1
 
-    # Repeat the test after turning off constant loop bounds
-    newsched, _ = cbtrans.apply(omp_schedule, const_bounds=False)
+    # Repeat the test after turning off constant loop bounds and
+    # the de-referencing routine
+    newsched0, _ = dtrans.apply(omp_schedule, deref=False)
+    newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     invoke.schedule = newsched
     gen = str(psy.gen)
     gen = gen.lower()
@@ -319,8 +408,11 @@ def test_omp_region_no_slice_no_const_bounds():
     schedule = invoke.schedule
     ompr = OMPParallelTrans()
     cbtrans = GOConstLoopBoundsTrans()
-
-    newsched, _ = cbtrans.apply(schedule, const_bounds=False)
+    dtrans = DereferenceTrans()
+    # Have to turn off the de-referencing routine as cannot have that
+    # without constant bounds
+    newsched0, _ = dtrans.apply(schedule, deref=False)
+    newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     omp_schedule, _ = ompr.apply(newsched.children)
     # Replace the original loop schedule with the transformed one
     invoke.schedule = omp_schedule
@@ -350,6 +442,7 @@ def test_omp_region_retains_kernel_order1():
 
     ompr = OMPParallelTrans()
     cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
 
     omp_schedule, _ = ompr.apply(schedule.children[1:])
 
@@ -374,8 +467,11 @@ def test_omp_region_retains_kernel_order1():
     # Kernels should be in order {compute_cu, compute_cv, time_smooth}
     assert cu_idx < cv_idx and cv_idx < ts_idx
 
-    # Repeat after turning off constant loop bounds
-    newsched, _ = cbtrans.apply(omp_schedule, const_bounds=False)
+    # Repeat after turning off constant loop bounds. Before we do that
+    # we must turn off the de-referencing routine since that requires
+    # constant loop bounds.
+    newsched0, _ = dtrans.apply(omp_schedule, deref=False)
+    newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     invoke.schedule = newsched
     gen = str(psy.gen)
     gen = gen.lower()
@@ -609,9 +705,12 @@ def test_omp_region_commutes_with_loop_trans_bounds_lookup():
     independent of the order in which they are applied. '''
     psy, invoke = get_invoke("single_invoke_two_kernels.f90", 0)
     schedule = invoke.schedule
-    # Turn-off constant loop bounds
+    # Turn-off constant loop bounds and the dereferencing routine
+    # (because can't have the latter without constant loop bounds)
     cbtrans = GOConstLoopBoundsTrans()
-    newsched, _ = cbtrans.apply(schedule, const_bounds=False)
+    dtrans = DereferenceTrans()
+    newsched0, _ = dtrans.apply(schedule, deref=False)
+    newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     # Keep a copy of the original schedule
     import copy
     orig_schedule = copy.deepcopy(newsched)
@@ -1072,8 +1171,9 @@ def test_module_inline():
     gen = str(psy.gen)
     # check that the subroutine has been inlined correctly
     expected = (
-        "    END SUBROUTINE invoke_0\n"
+        "    END SUBROUTINE invoke_0_arrays\n"
         "    SUBROUTINE compute_cu_code(i, j, cu, p, u)\n")
+    print gen
     assert expected in gen
     # check that the associated use no longer exists
     assert 'USE compute_cu_mod, ONLY: compute_cu_code' not in gen
