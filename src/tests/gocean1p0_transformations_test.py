@@ -111,6 +111,17 @@ def test_deref_toggle_off():
     assert expected in gen
 
 
+def test_const_bounds_toggle_off():
+    ''' Check that attempting to turn-off constant loop bounds raises
+    an error if the de-referencing subroutine is to be generated '''
+    psy, invoke = get_invoke("test11_different_iterates_over_"
+                             "one_invoke.f90", 0)
+    schedule = invoke.schedule
+    cbtrans = GOConstLoopBoundsTrans()
+    with pytest.raises(TransformationError):
+        _, _ = cbtrans.apply(schedule, const_bounds=False)
+
+
 def test_deref_no_const_loop_bounds():
     ''' Check that an appropriate error is raised if we attempt to introduce
     a de-referencing routine when constant loop bounds are switched off '''
