@@ -319,7 +319,7 @@ class GOInvoke(Invoke):
 
     def gen_code(self, parent):
 
-        if self._schedule.use_raw_arrays:
+        if self._schedule.deref_routine:
             self.gen_code_2layer(parent)
         else:
             self.gen_code_1layer(parent)
@@ -547,9 +547,11 @@ class GOSchedule(Schedule):
         # of configuration member variables here we may want
         # to create a a new ScheduleConfig object to manage them.
         self._const_loop_bounds = True
-        # TODO make this a configurable option rather than always having
-        # it set to true
-        self.use_raw_arrays = True
+        # Whether or not to generate a dereferencing routine as
+        # part of the PSy layer. This then allows the code containing
+        # the loops and kernel calls to deal only with intrinsic
+        # Fortran types.
+        self._deref_routine = True
 
         if self._const_loop_bounds:
             self._iloop_stop = "istop"
@@ -567,8 +569,7 @@ class GOSchedule(Schedule):
                 outer_loop.addchild(inner_loop)
 
                 gocall = GOKern()
-                gocall.load(call, parent=inner_loop,
-                            use_raw_arrays=self.use_raw_arrays)
+                gocall.load(call, parent=inner_loop)
                 inner_loop.addchild(gocall)
 
                 # determine inner and outer loops space information from the
@@ -637,7 +638,23 @@ class GOSchedule(Schedule):
 
     @const_loop_bounds.setter
     def const_loop_bounds(self, obj):
+        if not obj and self._deref_routine:
+            raise GenerationError(
+                "Cannot turn-off constant loop bounds because a "
+                "de-referencing routine is to be generated.\n")
         self._const_loop_bounds = obj
+
+    @property
+    def deref_routine(self):
+        return self._deref_routine
+
+    @deref_routine.setter
+    def deref_routine(self, obj):
+        if obj and not self._const_loop_bounds:
+            raise GenerationError(
+                "Cannot generate a de-referencing routine in the PSy layer"
+                " if constant loop bounds are not being used\n")
+        self._deref_routine = obj
 
 
 class GOLoop(Loop):
@@ -908,19 +925,20 @@ class GOKern(Kern):
         # Create those member variables required for testing
         self._children = []
         self._name = ""
+        self._schedule = None
 
-    def load(self, call, parent=None, use_raw_arrays=False):
+    def load(self, call, parent=None):
         Kern.__init__(self, GOKernelArguments, call, parent, check=False)
+
+        # Store a reference to our Schedule. This enables us to look-up
+        # whether we're generating a de-referencing routine at 
+        # code-generation time.
+        self._schedule = self.ancestor(GOSchedule)
 
         # Pull out the grid index-offset that this kernel expects and
         # store it here. This is used to check that all of the kernels
         # invoked by an application are using compatible index offsets.
         self._index_offset = call.ktype.index_offset
-
-        # Store whether or not the call to this kernel will be passing
-        # raw arrays (as opposed to having to dereference field
-        # objects)
-        self._use_raw_arrays = use_raw_arrays
 
     def local_vars(self):
         return []
@@ -963,12 +981,12 @@ class GOKern(Kern):
                 arguments.append(arg.name)
             elif arg.type == "field":
                 # Field objects are Fortran derived-types
-                if self._use_raw_arrays:
+                if self._schedule.deref_routine:
                     arguments.append(arg.name)
                 else:
                     arguments.append(arg.name + "%data")
             elif arg.type == "grid_property":
-                if self._use_raw_arrays:
+                if self._schedule.deref_routine:
                     arguments.append(arg.name)
                 else:
                     # Argument is a property of the grid which we can access via
