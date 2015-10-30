@@ -27,6 +27,10 @@ def test_field():
                                         "single_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -68,6 +72,10 @@ def test_two_kernels():
                                         "single_invoke_two_kernels.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
     generated_code = psy.gen
 
     expected_output = (
@@ -117,6 +125,10 @@ def test_grid_property():
                                         "single_invoke_grid_props.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -158,6 +170,10 @@ def test_scalar_int_arg():
                                         "single_invoke_scalar_int_arg.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -200,6 +216,10 @@ def test_scalar_float_arg():
                                         "single_invoke_scalar_float_arg.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -243,6 +263,11 @@ def test_ne_offset_cf_points():
                                 "test14_ne_offset_cf_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -272,7 +297,7 @@ def test_ne_offset_cf_points():
         "    END SUBROUTINE invoke_0_compute_vort\n"
         "  END MODULE psy_single_invoke_test")
 
-    assert generated_code.find(expected_output) != -1
+    assert expected_output in generated_code
 
 
 def test_ne_offset_ct_points():
@@ -286,6 +311,11 @@ def test_ne_offset_ct_points():
                                 "test15_ne_offset_ct_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -313,8 +343,8 @@ def test_ne_offset_ct_points():
         "      END DO \n"
         "    END SUBROUTINE invoke_0_compute_vort\n"
         "  END MODULE psy_single_invoke_test")
-
-    assert generated_code.find(expected_output) != -1
+    print generated_code
+    assert expected_output in generated_code
 
 
 def test_ne_offset_all_cu_points():
@@ -328,6 +358,11 @@ def test_ne_offset_all_cu_points():
                                 "test16_ne_offset_cu_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -354,8 +389,8 @@ def test_ne_offset_all_cu_points():
         "      END DO \n"
         "    END SUBROUTINE invoke_0_bc_solid_u\n"
         "  END MODULE psy_single_invoke_test")
-
-    assert generated_code.find(expected_output) != -1
+    print generated_code
+    assert expected_output in generated_code
 
 
 def test_ne_offset_all_cv_points():
@@ -369,6 +404,11 @@ def test_ne_offset_all_cv_points():
                                 "test17_ne_offset_cv_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -395,8 +435,8 @@ def test_ne_offset_all_cv_points():
         "      END DO \n"
         "    END SUBROUTINE invoke_0_bc_solid_v\n"
         "  END MODULE psy_single_invoke_test")
-
-    assert generated_code.find(expected_output) != -1
+    print generated_code
+    assert expected_output in generated_code
 
 
 def test_ne_offset_all_cf_points():
@@ -410,6 +450,11 @@ def test_ne_offset_all_cf_points():
                                 "test18_ne_offset_cf_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -436,8 +481,8 @@ def test_ne_offset_all_cf_points():
         "      END DO \n"
         "    END SUBROUTINE invoke_0_bc_solid_f\n"
         "  END MODULE psy_single_invoke_test")
-
-    assert generated_code.find(expected_output) != -1
+    print generated_code
+    assert expected_output in generated_code
 
 
 def test_sw_offset_cf_points():
@@ -452,6 +497,11 @@ def test_sw_offset_cf_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -479,7 +529,8 @@ def test_sw_offset_cf_points():
         "      END DO \n"
         "    END SUBROUTINE invoke_0_compute_z\n"
         "  END MODULE psy_single_invoke_test")
-    assert generated_code.find(expected_output) != -1
+    print generated_code
+    assert expected_output in generated_code
 
 
 def test_sw_offset_all_cf_points():
@@ -494,6 +545,11 @@ def test_sw_offset_all_cf_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -521,8 +577,8 @@ def test_sw_offset_all_cf_points():
         "      END DO \n"
         "    END SUBROUTINE invoke_0_apply_bcs_f\n"
         "  END MODULE psy_single_invoke_test")
-
-    assert generated_code.find(expected_output) != -1
+    print generated_code
+    assert expected_output in  generated_code
 
 
 def test_sw_offset_ct_points():
@@ -536,6 +592,11 @@ def test_sw_offset_ct_points():
                                 "test20_sw_offset_ct_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -563,8 +624,8 @@ def test_sw_offset_ct_points():
         "      END DO \n"
         "    END SUBROUTINE invoke_0_compute_h\n"
         "  END MODULE psy_single_invoke_test")
-
-    assert generated_code.find(expected_output) != -1
+    print generated_code
+    assert expected_output in generated_code
 
 
 def test_sw_offset_all_ct_points():
@@ -579,6 +640,11 @@ def test_sw_offset_all_ct_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -606,8 +672,8 @@ def test_sw_offset_all_ct_points():
         "      END DO \n"
         "    END SUBROUTINE invoke_0_apply_bcs_h\n"
         "  END MODULE psy_single_invoke_test")
-
-    assert generated_code.find(expected_output) != -1
+    print generated_code
+    assert expected_output in generated_code
 
 
 def test_sw_offset_all_cu_points():
@@ -622,6 +688,11 @@ def test_sw_offset_all_cu_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -648,8 +719,8 @@ def test_sw_offset_all_cu_points():
         "      END DO \n"
         "    END SUBROUTINE invoke_0_apply_bcs_u\n"
         "  END MODULE psy_single_invoke_test")
-
-    assert generated_code.find(expected_output) != -1
+    print generated_code
+    assert expected_output in generated_code
 
 
 def test_sw_offset_all_cv_points():
@@ -664,6 +735,11 @@ def test_sw_offset_all_cv_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -690,8 +766,8 @@ def test_sw_offset_all_cv_points():
         "      END DO \n"
         "    END SUBROUTINE invoke_0_apply_bcs_v\n"
         "  END MODULE psy_single_invoke_test")
-
-    assert generated_code.find(expected_output) != -1
+    print generated_code
+    assert expected_output in generated_code
 
 
 def test_offset_any_all_cu_points():
@@ -706,9 +782,51 @@ def test_offset_any_all_cu_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
-    generated_code = str(psy.gen)
 
+    gen_code = str(psy.gen)
     expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_compute_u(ufld, vfld, hfld)\n"
+        "      TYPE(r2d_field), intent(inout) :: ufld, vfld, hfld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = vfld%grid%nx\n"
+        "      ny = vfld%grid%ny\n"
+        "      istop = vfld%grid%simulation_domain%xstop\n"
+        "      jstop = vfld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_compute_u_arrays(nx, ny, istop, jstop, "
+        "ufld%data, vfld%data, hfld%data)\n"
+        "    END SUBROUTINE invoke_0_compute_u\n"
+        "    SUBROUTINE invoke_0_compute_u_arrays(nx, ny, istop, jstop, "
+        "ufld, vfld, hfld)\n"
+        "      USE kernel_any_offset_cu_mod, ONLY: compute_u_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: ufld, vfld,"
+        " hfld\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop\n"
+        "        DO i=1,istop\n"
+        "          CALL compute_u_code(i, j, ufld, vfld, hfld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_compute_u_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+
+    print gen_code
+    assert expected_output in gen_code
+
+    # Now repeat without the de-referencing routine
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+    gen_code_no_deref = str(psy.gen)
+
+    expected_output_no_deref = (
         "  MODULE psy_single_invoke_test\n"
         "    USE field_mod\n"
         "    USE kind_params_mod\n"
@@ -733,8 +851,8 @@ def test_offset_any_all_cu_points():
         "      END DO \n"
         "    END SUBROUTINE invoke_0_compute_u\n"
         "  END MODULE psy_single_invoke_test")
-    print generated_code
-    assert generated_code.find(expected_output) != -1
+    print gen_code_no_deref
+    assert gen_code_no_deref.find(expected_output_no_deref) != -1
 
 
 def test_offset_any_all_points():
@@ -749,6 +867,10 @@ def test_offset_any_all_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -837,6 +959,7 @@ def test_goschedule_str():
     assert sched_str in expected_sched
 
     # Switch-off constant loop bounds
+    schedule.deref_routine = False
     schedule.const_loop_bounds = False
     sched_str = str(schedule)
 
@@ -871,6 +994,7 @@ def test_gosched_ijstop():
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn off constant loop bounds
+    schedule.deref_routine = False
     schedule.const_loop_bounds = False
     # Attempt to query the upper bound of the i loop
     with pytest.raises(GenerationError):
