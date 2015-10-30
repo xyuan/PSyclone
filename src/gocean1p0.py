@@ -50,12 +50,13 @@ VALID_STENCILS = ["pointwise"]
 # loops.
 VALID_LOOP_TYPES = ["inner", "outer"]
 
+
 class GridProperty(object):
     '''Holds implementation details for each grid property.  e.g. whether
     it is a scalar or array, whether it is REAL or INTEGER etc.
 
     '''
-    def __init__(self, name="", rank=1, type="INTEGER", kind=""):
+    def __init__(self, name="", rank=0, type="INTEGER", kind=""):
         self._name = name
         self._rank = rank
         self._type = type
@@ -63,19 +64,27 @@ class GridProperty(object):
 
     @property
     def name(self):
+        ''' The name of the Fortran variable used to store this
+        grid property '''
         return self._name
 
     @property
     def type(self):
+        ''' The Fortran type (REAL or INTEGER) of this variable '''
         return self._type
     
     @property
     def rank(self):
+        '''The rank of the Fortran variable used to store this grid
+        property. Will be 0 for a scalar quantity.'''
         return self._rank
 
     @property
     def kind(self):
+        ''' The Fortran kind of the variable used to store this grid
+        property '''
         return self._kind
+
 
 # A dictionary giving the mapping from meta-data names for
 # properties of the grid to their names in the Fortran grid_type.
@@ -169,16 +178,11 @@ class GOPSy(PSy):
 class GOInvokes(Invokes):
     ''' The GOcean specific invokes class. This passes the GOcean specific
         invoke class to the base class so it creates the one we require. '''
-    def __init__(self, alg_calls, raw_arrays=True):
+    def __init__(self, alg_calls):
         if False:
             self._0_to_n = GOInvoke(None, None) # for pyreverse
-        if raw_arrays:
-            Invokes.__init__(self, alg_calls, GOInvokeArrays)
-        else:
-            # Pass GOInvoke to generate middle layer that doesn't
-            # have additional 'unpacking' subroutine (i.e. PSY-layer routine
-            # uses field objects [Fortran derived types]).
-            Invokes.__init__(self, alg_calls, GOInvoke)
+
+        Invokes.__init__(self, alg_calls, GOInvoke)
 
         index_offsets = []
         # Loop over all of the kernels in all of the invoke() calls
@@ -258,7 +262,70 @@ class GOInvoke(Invoke):
                     result.append(arg.name)
         return result
 
+    @property
+    def unique_grid_props(self):
+        ''' Find unique arguments that are properties of the grid. '''
+        result = []
+        for call in self._schedule.calls():
+            for arg in call.arguments.args:
+                if arg.type == 'grid_property' and not arg.name in result:
+                    result.append(arg.name)
+        return result
+
+    @property
+    def unique_grid_props_rarrays(self):
+        ''' Find unique arguments that are properties of the grid and that
+        are real arrays. '''
+        result = []
+        for call in self._schedule.calls():
+            for arg in call.arguments.args:
+                if arg.type == 'grid_property' and \
+                   arg.rank == 2 and arg.intrinsic_type == "REAL" and \
+                   not arg.name in result:
+                    result.append(arg.name)
+        return result
+
+    @property
+    def unique_grid_props_iarrays(self):
+        ''' Find unique arguments that are properties of the grid and that
+        are integer arrays. '''
+        result = []
+        for call in self._schedule.calls():
+            for arg in call.arguments.args:
+                if arg.type == 'grid_property' and \
+                   arg.rank == 2 and arg.intrinsic_type == "INTEGER" and \
+                   not arg.name in result:
+                    result.append(arg.name)
+        return result
+
+    def _find_grid_accessor(self):
+        '''Determine the best kernel argument from which to get properties of
+           the grid. For this, an argument must be a field (i.e. not
+           a scalar) and must be supplied by the algorithm layer
+           (i.e. not a grid property). If possible it should also be
+           a field that is read-only as otherwise compilers can get
+           confused about data dependencies and refuse to SIMD
+           vectorise. '''
+
+        for access in ["read", "readwrite", "write"]:
+            for call in self._schedule.calls():
+                for arg in call.arguments.args:
+                    if arg.type == "field" and arg.access.lower() == access:
+                        return arg
+        # We failed to find any kernel argument which could be used
+        # to access the grid properties. This will only be a problem
+        # if the kernel requires a grid-property argument.
+        return None
+
     def gen_code(self, parent):
+
+        if self._schedule.use_raw_arrays:
+            self.gen_code_2layer(parent)
+        else:
+            self.gen_code_1layer(parent)
+
+
+    def gen_code_1layer(self, parent):
         ''' Generates GOcean specific invocation code (the subroutine called
             by the associated invoke call in the algorithm layer). This
             consists of the PSy invocation subroutine and the declaration of
@@ -323,67 +390,7 @@ class GOInvoke(Invoke):
             invoke_sub.add(CommentGen(invoke_sub, ""),
                            position=["after", position])
 
-
-class GOInvokeArrays(GOInvoke):
-    ''' Overrides GOInvoke in order to generate a version of the PSy layer
-        that uses raw arrays rather than Fortran derived types. '''
-
-    @property
-    def unique_grid_props(self):
-        ''' Find unique arguments that are properties of the grid. '''
-        result = []
-        for call in self._schedule.calls():
-            for arg in call.arguments.args:
-                if arg.type == 'grid_property' and not arg.name in result:
-                    result.append(arg.name)
-        return result
-
-    @property
-    def unique_grid_props_rarrays(self):
-        ''' Find unique arguments that are properties of the grid and that
-        are real arrays. '''
-        result = []
-        for call in self._schedule.calls():
-            for arg in call.arguments.args:
-                if arg.type == 'grid_property' and \
-                   arg.rank == 2 and arg.intrinsic_type == "REAL" and \
-                   not arg.name in result:
-                    result.append(arg.name)
-        return result
-
-    @property
-    def unique_grid_props_iarrays(self):
-        ''' Find unique arguments that are properties of the grid and that
-        are integer arrays. '''
-        result = []
-        for call in self._schedule.calls():
-            for arg in call.arguments.args:
-                if arg.type == 'grid_property' and \
-                   arg.rank == 2 and arg.intrinsic_type == "INTEGER" and \
-                   not arg.name in result:
-                    result.append(arg.name)
-        return result
-
-    def _find_grid_accessor(self):
-        '''Determine the best kernel argument from which to get properties of
-           the grid. For this, an argument must be a field (i.e. not
-           a scalar) and must be supplied by the algorithm layer
-           (i.e. not a grid property). If possible it should also be
-           a field that is read-only as otherwise compilers can get
-           confused about data dependencies and refuse to SIMD
-           vectorise. '''
-
-        for access in ["read", "readwrite", "write"]:
-            for call in self._schedule.calls():
-                for arg in call.arguments.args:
-                    if arg.type == "field" and arg.access.lower() == access:
-                        return arg
-        # We failed to find any kernel argument which could be used
-        # to access the grid properties. This will only be a problem
-        # if the kernel requires a grid-property argument.
-        return None
-
-    def gen_code(self, parent):
+    def gen_code_2layer(self, parent):
         ''' Generates GOcean specific invocation code (the subroutine called
             by the associated invoke call in the algorithm layer). This
             consists of the PSy invocation subroutine and the declaration of
@@ -393,7 +400,7 @@ class GOInvokeArrays(GOInvoke):
 
         # The arguments/variables for the extents of the arrays and
         # the upper bounds of associated loops
-        array_bound_args = ["nx", "ny", "xstop", "ystop"]
+        array_bound_args = ["nx", "ny", "istop", "jstop"]
 
         # create the subroutine that will convert from Fortran derived
         # types to raw arrays
@@ -454,10 +461,10 @@ class GOInvokeArrays(GOInvoke):
                                  lhs="ny",
                                  rhs=grid_arg.name+"%grid%ny"))
         invoke_sub.add(AssignGen(invoke_sub,
-                                 lhs="xstop",
+                                 lhs="istop",
                                  rhs=grid_arg.name+"%grid%simulation_domain%xstop"))
         invoke_sub.add(AssignGen(invoke_sub,
-                                 lhs="ystop",
+                                 lhs="jstop",
                                  rhs=grid_arg.name+"%grid%simulation_domain%ystop"))
 
         # Declare the corresponding dummy arguments in the PSy routine
@@ -545,12 +552,8 @@ class GOSchedule(Schedule):
         self.use_raw_arrays = True
 
         if self._const_loop_bounds:
-            if self.use_raw_arrays:
-                self._iloop_stop = "xstop"
-                self._jloop_stop = "ystop"
-            else:
-                self._iloop_stop = "istop"
-                self._jloop_stop = "jstop"
+            self._iloop_stop = "istop"
+            self._jloop_stop = "jstop"
 
         for call in alg_calls:
             if isinstance(call, InfCall):
