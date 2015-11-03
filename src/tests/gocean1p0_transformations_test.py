@@ -44,7 +44,7 @@ def get_invoke(algfile, idx):
 
 def test_deref_not_schedule():
     ''' Check that we raise an error if we attempt to apply the
-    constant loop-bounds transformation to something that is
+    de-referencing routine transformation to something that is
     not a Schedule '''
     _, invoke = get_invoke("test11_different_iterates_over_"
                            "one_invoke.f90", 0)
@@ -56,14 +56,15 @@ def test_deref_not_schedule():
 
 
 def test_deref_default():
-    ''' Check that we  introduce a de-referencing
-    routine by default '''
+    '''Check that we introduce a de-referencing routine by default
+
+    '''
     psy, invoke = get_invoke("test11_different_iterates_over_"
                            "one_invoke.f90", 0)
     schedule = invoke.schedule
     dtrans = DereferenceTrans()
 
-    # First check that the generated code contains a de-referencing
+    # Check that the generated code contains a de-referencing
     # routine by default
     gen = str(psy.gen)
     print gen
@@ -113,7 +114,8 @@ def test_deref_toggle_off():
 
 def test_const_bounds_toggle_off():
     ''' Check that attempting to turn-off constant loop bounds raises
-    an error if the de-referencing subroutine is to be generated '''
+    an error if the de-referencing subroutine is to be generated (since
+    the latter requires the former) '''
     psy, invoke = get_invoke("test11_different_iterates_over_"
                              "one_invoke.f90", 0)
     schedule = invoke.schedule
@@ -130,10 +132,14 @@ def test_deref_no_const_loop_bounds():
     schedule = invoke.schedule
     cbtrans = GOConstLoopBoundsTrans()
     dtrans = DereferenceTrans()
-
-    new_sched, _ = dtrans.apply(schedule, deref=False)
-    invoke.schedule = new_sched
-    gen = str(psy.gen)
+    # Turn off the de-referencing routine so that we can then turn
+    # off constant loop bounds
+    new_sched0, _ = dtrans.apply(schedule, deref=False)
+    # Turn off constant loop bounds
+    new_sched1, _ = cbtrans.apply(new_sched0, const_bounds=False)
+    # Now attempt to turn on the de-referencing routine
+    with pytest.raises(TransformationError):
+        _, _ = dtrans.apply(new_sched1)
 
 
 def test_const_loop_bounds_not_schedule():
@@ -173,11 +179,13 @@ def test_const_loop_bounds_toggle():
     newsched, _ = cbtrans.apply(schedule)
     invoke.schedule = newsched
     # Store the generated code as a string and check that it matches
-    # what we go the first time
+    # what we got the first time
     gen_trans = str(psy.gen)
     assert gen_trans == gen
 
-    # Finally, test that we can turn-off constant loop bounds
+    # Finally, test that we can turn-off constant loop bounds. We also have
+    # to turn-off the de-referencing layer since that requires constant
+    # loop bounds.
     newsched0, _ = dtrans.apply(schedule, deref=False)
     newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     invoke.schedule = newsched

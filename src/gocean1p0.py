@@ -318,7 +318,13 @@ class GOInvoke(Invoke):
         return None
 
     def gen_code(self, parent):
+        '''Wrapper for the two different gen_code_... methods.
+        gen_code_2layer generates a PSy layer containing a
+        de-referencing subroutine while gen_code_1layer generates a
+        singlue subroutine that both de-references AND calls the
+        kernels
 
+        '''
         if self._schedule.deref_routine:
             self.gen_code_2layer(parent)
         else:
@@ -391,10 +397,15 @@ class GOInvoke(Invoke):
                            position=["after", position])
 
     def gen_code_2layer(self, parent):
-        ''' Generates GOcean specific invocation code (the subroutine called
-            by the associated invoke call in the algorithm layer). This
-            consists of the PSy invocation subroutine and the declaration of
-            its arguments.'''
+        '''Generates GOcean specific invocation code (the subroutine called
+            by the associated invoke call in the algorithm
+            layer). This consists of the PSy invocation subroutine and
+            the declaration of its arguments. Once all derived types
+            have been de-referenced to get at native arrays, these
+            arrays are passed to a second subroutine which contains
+            all loops and the Kernel calls
+
+        '''
         from f2pygen import SubroutineGen, DeclGen, TypeDeclGen, CallGen,\
             AssignGen
 

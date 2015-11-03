@@ -27,6 +27,53 @@ def test_field():
                                         "single_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_compute_cu(cu_fld, p_fld, u_fld)\n"
+        "      TYPE(r2d_field), intent(inout) :: cu_fld, p_fld, u_fld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = p_fld%grid%nx\n"
+        "      ny = p_fld%grid%ny\n"
+        "      istop = p_fld%grid%simulation_domain%xstop\n"
+        "      jstop = p_fld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_compute_cu_arrays(nx, ny, istop, jstop, "
+        "cu_fld%data, p_fld%data, u_fld%data)\n"
+        "    END SUBROUTINE invoke_0_compute_cu\n"
+        "    SUBROUTINE invoke_0_compute_cu_arrays(nx, ny, istop, jstop, "
+        "cu_fld, p_fld, u_fld)\n"
+        "      USE compute_cu_mod, ONLY: compute_cu_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: cu_fld, "
+        "p_fld, u_fld\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=2,jstop\n"
+        "        DO i=2,istop+1\n"
+        "          CALL compute_cu_code(i, j, cu_fld, p_fld, u_fld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_compute_cu_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert generated_code.find(expected_output) != -1
+
+
+def test_field_no_deref():
+    ''' Tests that a kernel call with only fields produces correct code 
+    when the de-referencing routine is switched off'''
+    _, invoke_info = parse(os.path.join(os.path.
+                                        dirname(os.path.
+                                                abspath(__file__)),
+                                        "test_files", "gocean1p0",
+                                        "single_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
@@ -63,6 +110,60 @@ def test_field():
 
 
 def test_two_kernels():
+    ''' Tests that an invoke containing two kernel calls with only
+    fields as arguments produces correct code '''
+    _, invoke_info = parse(os.path.join(os.path.
+                                        dirname(os.path.
+                                                abspath(__file__)),
+                                        "test_files", "gocean1p0",
+                                        "single_invoke_two_kernels.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
+    generated_code = psy.gen
+
+    expected_output = (
+        "  MODULE psy_single_invoke_two_kernels\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0(cu_fld, p_fld, u_fld, unew_fld, uold_fld)\n"
+        "      TYPE(r2d_field), intent(inout) :: cu_fld, p_fld, u_fld, "
+        "unew_fld, uold_fld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = p_fld%grid%nx\n"
+        "      ny = p_fld%grid%ny\n"
+        "      istop = p_fld%grid%simulation_domain%xstop\n"
+        "      jstop = p_fld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_arrays(nx, ny, istop, jstop, cu_fld%data, "
+        "p_fld%data, u_fld%data, unew_fld%data, uold_fld%data)\n"
+        "    END SUBROUTINE invoke_0\n"
+        "    SUBROUTINE invoke_0_arrays(nx, ny, istop, jstop, cu_fld, "
+        "p_fld, u_fld, unew_fld, uold_fld)\n"
+        "      USE time_smooth_mod, ONLY: time_smooth_code\n"
+        "      USE compute_cu_mod, ONLY: compute_cu_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: cu_fld, "
+        "p_fld, u_fld, unew_fld, uold_fld\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=2,jstop\n"
+        "        DO i=2,istop+1\n"
+        "          CALL compute_cu_code(i, j, cu_fld, p_fld, u_fld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "      DO j=1,jstop+1\n"
+        "        DO i=1,istop+1\n"
+        "          CALL time_smooth_code(i, j, u_fld, unew_fld, uold_fld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_arrays\n"
+        "  END MODULE psy_single_invoke_two_kernels")
+    print generated_code
+    assert str(generated_code).find(expected_output) != -1
+
+
+def test_two_kernels_no_deref():
     ''' Tests that an invoke containing two kernel calls with only
     fields as arguments produces correct code '''
     _, invoke_info = parse(os.path.join(os.path.
@@ -125,6 +226,58 @@ def test_grid_property():
                                         "single_invoke_grid_props.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_with_grid_props_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_next_sshu(cu_fld, u_fld)\n"
+        "      TYPE(r2d_field), intent(inout) :: cu_fld, u_fld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = u_fld%grid%nx\n"
+        "      ny = u_fld%grid%ny\n"
+        "      istop = u_fld%grid%simulation_domain%xstop\n"
+        "      jstop = u_fld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_next_sshu_arrays(nx, ny, istop, jstop, "
+        "cu_fld%data, u_fld%data, u_fld%grid%tmask, u_fld%grid%area_t, "
+        "u_fld%grid%area_u)\n"
+        "    END SUBROUTINE invoke_0_next_sshu\n"
+        "    SUBROUTINE invoke_0_next_sshu_arrays(nx, ny, istop, jstop, "
+        "cu_fld, u_fld, tmask, area_t, area_u)\n"
+        "      USE kernel_requires_grid_props, ONLY: next_sshu_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: cu_fld, "
+        "u_fld\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: area_t, "
+        "area_u\n"
+        "      INTEGER, intent(inout), dimension(nx,ny) :: tmask\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=2,jstop\n"
+        "        DO i=2,istop-1\n"
+        "          CALL next_sshu_code(i, j, cu_fld, u_fld, tmask, "
+        "area_t, area_u)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_next_sshu_arrays\n"
+        "  END MODULE psy_single_invoke_with_grid_props_test")
+    print generated_code
+    assert generated_code.find(expected_output) != -1
+
+
+def test_grid_property_no_deref():
+    ''' Tests that an invoke containing a kernel call requiring
+    a property of the grid produces correct code '''
+    _, invoke_info = parse(os.path.join(os.path.
+                                        dirname(os.path.
+                                                abspath(__file__)),
+                                        "test_files", "gocean1p0",
+                                        "single_invoke_grid_props.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
@@ -163,6 +316,56 @@ def test_grid_property():
 def test_scalar_int_arg():
     ''' Tests that an invoke containing a kernel call requiring
     an integer, scalar argument produces correct code '''
+    _, invoke_info = parse(os.path.join(os.path.
+                                        dirname(os.path.
+                                                abspath(__file__)),
+                                        "test_files", "gocean1p0",
+                                        "single_invoke_scalar_int_arg.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_scalar_int_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_bc_ssh(ncycle, ssh_fld)\n"
+        "      TYPE(r2d_field), intent(inout) :: ssh_fld\n"
+        "      INTEGER, intent(inout) :: ncycle\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = ssh_fld%grid%nx\n"
+        "      ny = ssh_fld%grid%ny\n"
+        "      istop = ssh_fld%grid%simulation_domain%xstop\n"
+        "      jstop = ssh_fld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_bc_ssh_arrays(nx, ny, istop, jstop, ncycle, "
+        "ssh_fld%data, ssh_fld%grid%tmask)\n"
+        "    END SUBROUTINE invoke_0_bc_ssh\n"
+        "    SUBROUTINE invoke_0_bc_ssh_arrays(nx, ny, istop, jstop, "
+        "ncycle, ssh_fld, tmask)\n"
+        "      USE kernel_scalar_int, ONLY: bc_ssh_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: ssh_fld\n"
+        "      INTEGER, intent(inout) :: ncycle\n"
+        "      INTEGER, intent(inout), dimension(nx,ny) :: tmask\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop+1\n"
+        "        DO i=1,istop+1\n"
+        "          CALL bc_ssh_code(i, j, ncycle, ssh_fld, tmask)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_bc_ssh_arrays\n"
+        "  END MODULE psy_single_invoke_scalar_int_test")
+    print generated_code
+    assert generated_code.find(expected_output) != -1
+
+
+def test_scalar_int_arg_no_deref():
+    ''' Tests that an invoke containing a kernel call requiring
+    an integer, scalar argument produces correct code when the
+    de-referencing routine is switched off'''
     _, invoke_info = parse(os.path.join(os.path.
                                         dirname(os.path.
                                                 abspath(__file__)),
@@ -216,6 +419,56 @@ def test_scalar_float_arg():
                                         "single_invoke_scalar_float_arg.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_scalar_float_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_bc_ssh(a_scalar, ssh_fld)\n"
+        "      TYPE(r2d_field), intent(inout) :: ssh_fld\n"
+        "      REAL(KIND=wp), intent(inout) :: a_scalar\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = ssh_fld%grid%nx\n"
+        "      ny = ssh_fld%grid%ny\n"
+        "      istop = ssh_fld%grid%simulation_domain%xstop\n"
+        "      jstop = ssh_fld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_bc_ssh_arrays(nx, ny, istop, jstop, a_scalar, "
+        "ssh_fld%data, ssh_fld%grid%tmask)\n"
+        "    END SUBROUTINE invoke_0_bc_ssh\n"
+        "    SUBROUTINE invoke_0_bc_ssh_arrays(nx, ny, istop, jstop, "
+        "a_scalar, ssh_fld, tmask)\n"
+        "      USE kernel_scalar_float, ONLY: bc_ssh_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: ssh_fld\n"
+        "      REAL(KIND=wp), intent(inout) :: a_scalar\n"
+        "      INTEGER, intent(inout), dimension(nx,ny) :: tmask\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop+1\n"
+        "        DO i=1,istop+1\n"
+        "          CALL bc_ssh_code(i, j, a_scalar, ssh_fld, tmask)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_bc_ssh_arrays\n"
+        "  END MODULE psy_single_invoke_scalar_float_test")
+    print generated_code
+    assert generated_code.find(expected_output) != -1
+
+
+def test_scalar_float_arg_no_deref():
+    ''' Tests that an invoke containing a kernel call requiring
+    a real, scalar argument produces correct code when the
+    de-referencing routine is switched off'''
+    _, invoke_info = parse(os.path.join(os.path.
+                                        dirname(os.path.
+                                                abspath(__file__)),
+                                        "test_files", "gocean1p0",
+                                        "single_invoke_scalar_float_arg.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
@@ -255,6 +508,57 @@ def test_scalar_float_arg():
 def test_ne_offset_cf_points():
     ''' Test that we can generate code for a kernel that expects a NE
     offset and writes to a field on CF points '''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test14_ne_offset_cf_updated_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_compute_vort(vort_fld, p_fld, u_fld, v_fld)\n"
+        "      TYPE(r2d_field), intent(inout) :: vort_fld, p_fld, u_fld, "
+        "v_fld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = p_fld%grid%nx\n"
+        "      ny = p_fld%grid%ny\n"
+        "      istop = p_fld%grid%simulation_domain%xstop\n"
+        "      jstop = p_fld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_compute_vort_arrays(nx, ny, istop, jstop, "
+        "vort_fld%data, p_fld%data, u_fld%data, v_fld%data)\n"
+        "    END SUBROUTINE invoke_0_compute_vort\n"
+        "    SUBROUTINE invoke_0_compute_vort_arrays(nx, ny, istop, jstop, "
+        "vort_fld, p_fld, u_fld, v_fld)\n"
+        "      USE kernel_ne_offset_cf_mod, ONLY: compute_vort_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: vort_fld, "
+        "p_fld, u_fld, v_fld\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop-1\n"
+        "        DO i=1,istop-1\n"
+        "          CALL compute_vort_code(i, j, vort_fld, p_fld, "
+        "u_fld, v_fld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_compute_vort_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert expected_output in generated_code
+
+
+def test_ne_offset_cf_points_no_deref():
+    ''' Test that we can generate code for a kernel that expects a NE
+    offset and writes to a field on CF points when the de-referencing
+    routine is switched off'''
     _, invoke_info = parse(os.path.
                            join(os.path.
                                 dirname(os.path.
@@ -311,6 +615,55 @@ def test_ne_offset_ct_points():
                                 "test15_ne_offset_ct_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_compute_vort(p_fld, u_fld, v_fld)\n"
+        "      TYPE(r2d_field), intent(inout) :: p_fld, u_fld, v_fld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = u_fld%grid%nx\n"
+        "      ny = u_fld%grid%ny\n"
+        "      istop = u_fld%grid%simulation_domain%xstop\n"
+        "      jstop = u_fld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_compute_vort_arrays(nx, ny, istop, jstop, "
+        "p_fld%data, u_fld%data, v_fld%data)\n"
+        "    END SUBROUTINE invoke_0_compute_vort\n"
+        "    SUBROUTINE invoke_0_compute_vort_arrays(nx, ny, istop, jstop, "
+        "p_fld, u_fld, v_fld)\n"
+        "      USE kernel_ne_offset_ct_mod, ONLY: compute_vort_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: p_fld, "
+        "u_fld, v_fld\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=2,jstop\n"
+        "        DO i=2,istop\n"
+        "          CALL compute_vort_code(i, j, p_fld, u_fld, v_fld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_compute_vort_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert expected_output in generated_code
+
+
+def test_ne_offset_ct_points_no_deref():
+    ''' Test that we can generate code (without a de-referencing
+    routine for a kernel that expects a NE offset and writes to a
+    field on CT points '''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test15_ne_offset_ct_updated_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
@@ -358,11 +711,61 @@ def test_ne_offset_all_cu_points():
                                 "test16_ne_offset_cu_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_bc_solid_u(u_fld)\n"
+        "      TYPE(r2d_field), intent(inout) :: u_fld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = u_fld%grid%nx\n"
+        "      ny = u_fld%grid%ny\n"
+        "      istop = u_fld%grid%simulation_domain%xstop\n"
+        "      jstop = u_fld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_bc_solid_u_arrays(nx, ny, istop, jstop, "
+        "u_fld%data, u_fld%grid%tmask)\n"
+        "    END SUBROUTINE invoke_0_bc_solid_u\n"
+        "    SUBROUTINE invoke_0_bc_solid_u_arrays(nx, ny, istop, jstop, "
+        "u_fld, tmask)\n"
+        "      USE boundary_conditions_ne_offset_mod, ONLY: bc_solid_u_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: u_fld\n"
+        "      INTEGER, intent(inout), dimension(nx,ny) :: tmask\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop+1\n"
+        "        DO i=1,istop\n"
+        "          CALL bc_solid_u_code(i, j, u_fld, tmask)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_bc_solid_u_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert expected_output in generated_code
+
+
+def test_ne_offset_all_cu_points_no_deref():
+    '''Test that we can generate code (without a de-referencing routine
+    for a kernel that expects a NE offset and writes to a field on all
+    CU points
+
+    '''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test16_ne_offset_cu_updated_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
     schedule.deref_routine = False
-
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -396,6 +799,55 @@ def test_ne_offset_all_cu_points():
 def test_ne_offset_all_cv_points():
     ''' Test that we can generate code for a kernel that expects a NE
     offset and writes to a field on all CV points '''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test17_ne_offset_cv_updated_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_bc_solid_v(v_fld)\n"
+        "      TYPE(r2d_field), intent(inout) :: v_fld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = v_fld%grid%nx\n"
+        "      ny = v_fld%grid%ny\n"
+        "      istop = v_fld%grid%simulation_domain%xstop\n"
+        "      jstop = v_fld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_bc_solid_v_arrays(nx, ny, istop, jstop, "
+        "v_fld%data, v_fld%grid%tmask)\n"
+        "    END SUBROUTINE invoke_0_bc_solid_v\n"
+        "    SUBROUTINE invoke_0_bc_solid_v_arrays(nx, ny, istop, "
+        "jstop, v_fld, tmask)\n"
+        "      USE boundary_conditions_ne_offset_mod, ONLY: bc_solid_v_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: v_fld\n"
+        "      INTEGER, intent(inout), dimension(nx,ny) :: tmask\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop\n"
+        "        DO i=1,istop+1\n"
+        "          CALL bc_solid_v_code(i, j, v_fld, tmask)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_bc_solid_v_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert expected_output in generated_code
+
+
+def test_ne_offset_all_cv_points_no_deref():
+    ''' Test that we can generate code (without a de-referencing routine
+    for a kernel that expects a NE offset and writes to a field on all CV
+    points '''
     _, invoke_info = parse(os.path.
                            join(os.path.
                                 dirname(os.path.
@@ -442,6 +894,57 @@ def test_ne_offset_all_cv_points():
 def test_ne_offset_all_cf_points():
     ''' Test that we can generate code for a kernel that expects a NE
     offset and writes to a field on all CF points '''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test18_ne_offset_cf_updated_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_bc_solid_f(f_fld)\n"
+        "      TYPE(r2d_field), intent(inout) :: f_fld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = f_fld%grid%nx\n"
+        "      ny = f_fld%grid%ny\n"
+        "      istop = f_fld%grid%simulation_domain%xstop\n"
+        "      jstop = f_fld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_bc_solid_f_arrays(nx, ny, istop, jstop, "
+        "f_fld%data, f_fld%grid%tmask)\n"
+        "    END SUBROUTINE invoke_0_bc_solid_f\n"
+        "    SUBROUTINE invoke_0_bc_solid_f_arrays(nx, ny, istop, jstop, "
+        "f_fld, tmask)\n"
+        "      USE boundary_conditions_ne_offset_mod, ONLY: bc_solid_f_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: f_fld\n"
+        "      INTEGER, intent(inout), dimension(nx,ny) :: tmask\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop\n"
+        "        DO i=1,istop\n"
+        "          CALL bc_solid_f_code(i, j, f_fld, tmask)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_bc_solid_f_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert expected_output in generated_code
+
+
+def test_ne_offset_all_cf_points_no_deref():
+    '''Test that we can generate code without a de-referencing routine
+    for a kernel that expects a NE offset and writes to a field on all
+    CF points
+
+    '''
     _, invoke_info = parse(os.path.
                            join(os.path.
                                 dirname(os.path.
@@ -497,11 +1000,64 @@ def test_sw_offset_cf_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_compute_z(zfld, pfld, ufld, vfld)\n"
+        "      TYPE(r2d_field), intent(inout) :: zfld, pfld, ufld, vfld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = pfld%grid%nx\n"
+        "      ny = pfld%grid%ny\n"
+        "      istop = pfld%grid%simulation_domain%xstop\n"
+        "      jstop = pfld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_compute_z_arrays(nx, ny, istop, jstop, "
+        "zfld%data, pfld%data, ufld%data, vfld%data, pfld%grid%dx, "
+        "pfld%grid%dy)\n"
+        "    END SUBROUTINE invoke_0_compute_z\n"
+        "    SUBROUTINE invoke_0_compute_z_arrays(nx, ny, istop, jstop, "
+        "zfld, pfld, ufld, vfld, dx, dy)\n"
+        "      USE kernel_sw_offset_cf_mod, ONLY: compute_z_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: zfld, "
+        "pfld, ufld, vfld\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: dx, dy\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=2,jstop+1\n"
+        "        DO i=2,istop+1\n"
+        "          CALL compute_z_code(i, j, zfld, pfld, ufld, vfld, dx, dy)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_compute_z_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert expected_output in generated_code
+
+
+def test_sw_offset_cf_points_no_deref():
+    '''Test that we can generate code without a de-referencing routine
+    for a kernel that expects a SW offset and writes to a field on
+    internal CF points
+
+    '''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test19.1_sw_offset_cf_updated" +
+                                "_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
     schedule.deref_routine = False
-
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -545,11 +1101,62 @@ def test_sw_offset_all_cf_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_apply_bcs_f(zfld, pfld, ufld, vfld)\n"
+        "      TYPE(r2d_field), intent(inout) :: zfld, pfld, ufld, vfld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = pfld%grid%nx\n"
+        "      ny = pfld%grid%ny\n"
+        "      istop = pfld%grid%simulation_domain%xstop\n"
+        "      jstop = pfld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_apply_bcs_f_arrays(nx, ny, istop, jstop, "
+        "zfld%data, pfld%data, ufld%data, vfld%data)\n"
+        "    END SUBROUTINE invoke_0_apply_bcs_f\n"
+        "    SUBROUTINE invoke_0_apply_bcs_f_arrays(nx, ny, istop, jstop, "
+        "zfld, pfld, ufld, vfld)\n"
+        "      USE kernel_sw_offset_cf_mod, ONLY: apply_bcs_f_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: zfld, pfld, "
+        "ufld, vfld\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop+1\n"
+        "        DO i=1,istop+1\n"
+        "          CALL apply_bcs_f_code(i, j, zfld, pfld, ufld, vfld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_apply_bcs_f_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert expected_output in  generated_code
+
+
+def test_sw_offset_all_cf_points_no_deref():
+    '''Test that we can generate code without a de-referencing routine
+    for a kernel that expects a SW offset and writes to a field on all
+    CF points
+
+    '''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test19.2_sw_offset_all_cf_updated" +
+                                "_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
     schedule.deref_routine = False
-
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -592,11 +1199,61 @@ def test_sw_offset_ct_points():
                                 "test20_sw_offset_ct_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_compute_h(hfld, pfld, ufld, vfld)\n"
+        "      TYPE(r2d_field), intent(inout) :: hfld, pfld, ufld, vfld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = pfld%grid%nx\n"
+        "      ny = pfld%grid%ny\n"
+        "      istop = pfld%grid%simulation_domain%xstop\n"
+        "      jstop = pfld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_compute_h_arrays(nx, ny, istop, jstop, "
+        "hfld%data, pfld%data, ufld%data, vfld%data)\n"
+        "    END SUBROUTINE invoke_0_compute_h\n"
+        "    SUBROUTINE invoke_0_compute_h_arrays(nx, ny, istop, jstop, "
+        "hfld, pfld, ufld, vfld)\n"
+        "      USE kernel_sw_offset_ct_mod, ONLY: compute_h_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: hfld, pfld, "
+        "ufld, vfld\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=2,jstop\n"
+        "        DO i=2,istop\n"
+        "          CALL compute_h_code(i, j, hfld, pfld, ufld, vfld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_compute_h_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert expected_output in generated_code
+
+
+def test_sw_offset_ct_points_no_deref():
+    '''Test that we can generate code without a de-referencing routine
+    for a kernel that expects a SW offset and writes to a field on
+    internal CT points
+
+    '''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test20_sw_offset_ct_updated_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
     schedule.deref_routine = False
-
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -640,11 +1297,62 @@ def test_sw_offset_all_ct_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_apply_bcs_h(hfld, pfld, ufld, vfld)\n"
+        "      TYPE(r2d_field), intent(inout) :: hfld, pfld, ufld, vfld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = pfld%grid%nx\n"
+        "      ny = pfld%grid%ny\n"
+        "      istop = pfld%grid%simulation_domain%xstop\n"
+        "      jstop = pfld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_apply_bcs_h_arrays(nx, ny, istop, jstop, "
+        "hfld%data, pfld%data, ufld%data, vfld%data)\n"
+        "    END SUBROUTINE invoke_0_apply_bcs_h\n"
+        "    SUBROUTINE invoke_0_apply_bcs_h_arrays(nx, ny, istop, jstop, "
+        "hfld, pfld, ufld, vfld)\n"
+        "      USE kernel_sw_offset_ct_mod, ONLY: apply_bcs_h_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: hfld, "
+        "pfld, ufld, vfld\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop+1\n"
+        "        DO i=1,istop+1\n"
+        "          CALL apply_bcs_h_code(i, j, hfld, pfld, ufld, vfld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_apply_bcs_h_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert expected_output in generated_code
+
+
+def test_sw_offset_all_ct_points_no_deref():
+    '''Test that we can generate code without a de-referencing routine for
+    a kernel that expects a SW offset and writes to a field on all CT
+    points
+
+    '''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test21_sw_offset_all_ct_updated" +
+                                "_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
     schedule.deref_routine = False
-
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -688,11 +1396,59 @@ def test_sw_offset_all_cu_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_apply_bcs_u(ufld, vfld)\n"
+        "      TYPE(r2d_field), intent(inout) :: ufld, vfld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = vfld%grid%nx\n"
+        "      ny = vfld%grid%ny\n"
+        "      istop = vfld%grid%simulation_domain%xstop\n"
+        "      jstop = vfld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_apply_bcs_u_arrays(nx, ny, istop, jstop, "
+        "ufld%data, vfld%data)\n"
+        "    END SUBROUTINE invoke_0_apply_bcs_u\n"
+        "    SUBROUTINE invoke_0_apply_bcs_u_arrays(nx, ny, istop, jstop, "
+        "ufld, vfld)\n"
+        "      USE kernel_sw_offset_cu_mod, ONLY: apply_bcs_u_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: ufld, vfld\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop+1\n"
+        "        DO i=1,istop+1\n"
+        "          CALL apply_bcs_u_code(i, j, ufld, vfld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_apply_bcs_u_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert expected_output in generated_code
+
+
+def test_sw_offset_all_cu_points_no_deref():
+    '''Test that we can generate code without a de-referencing routine
+    for a kernel that expects a SW offset and writes to a field on all CU
+    points'''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test22_sw_offset_all_cu_updated" +
+                                "_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
     schedule.deref_routine = False
-
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -735,11 +1491,61 @@ def test_sw_offset_all_cv_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_apply_bcs_v(vfld, ufld)\n"
+        "      TYPE(r2d_field), intent(inout) :: vfld, ufld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = ufld%grid%nx\n"
+        "      ny = ufld%grid%ny\n"
+        "      istop = ufld%grid%simulation_domain%xstop\n"
+        "      jstop = ufld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_apply_bcs_v_arrays(nx, ny, istop, jstop, "
+        "vfld%data, ufld%data)\n"
+        "    END SUBROUTINE invoke_0_apply_bcs_v\n"
+        "    SUBROUTINE invoke_0_apply_bcs_v_arrays(nx, ny, istop, jstop, "
+        "vfld, ufld)\n"
+        "      USE kernel_sw_offset_cv_mod, ONLY: apply_bcs_v_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: vfld, ufld\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop+1\n"
+        "        DO i=1,istop+1\n"
+        "          CALL apply_bcs_v_code(i, j, vfld, ufld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_apply_bcs_v_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert expected_output in generated_code
+
+
+def test_sw_offset_all_cv_points_no_deref():
+    '''Test that we can generate code without a de-referencing routine
+    for a kernel that expects a SW offset and writes to a field on all
+    CV points
+
+    '''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test23_sw_offset_all_cv_updated" +
+                                "_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
     schedule.deref_routine = False
-
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -867,6 +1673,58 @@ def test_offset_any_all_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    generated_code = str(psy.gen)
+
+    expected_output = (
+        "  MODULE psy_single_invoke_test\n"
+        "    USE field_mod\n"
+        "    USE kind_params_mod\n"
+        "    IMPLICIT NONE\n"
+        "    CONTAINS\n"
+        "    SUBROUTINE invoke_0_copy(voldfld, vfld)\n"
+        "      TYPE(r2d_field), intent(inout) :: voldfld, vfld\n"
+        "      INTEGER nx, ny, istop, jstop\n"
+        "      nx = vfld%grid%nx\n"
+        "      ny = vfld%grid%ny\n"
+        "      istop = vfld%grid%simulation_domain%xstop\n"
+        "      jstop = vfld%grid%simulation_domain%ystop\n"
+        "      CALL invoke_0_copy_arrays(nx, ny, istop, jstop, "
+        "voldfld%data, vfld%data)\n"
+        "    END SUBROUTINE invoke_0_copy\n"
+        "    SUBROUTINE invoke_0_copy_arrays(nx, ny, istop, jstop, "
+        "voldfld, vfld)\n"
+        "      USE kernel_field_copy_mod, ONLY: field_copy_code\n"
+        "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
+        "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: voldfld, "
+        "vfld\n"
+        "      INTEGER j\n"
+        "      INTEGER i\n"
+        "      DO j=1,jstop+1\n"
+        "        DO i=1,istop+1\n"
+        "          CALL field_copy_code(i, j, voldfld, vfld)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0_copy_arrays\n"
+        "  END MODULE psy_single_invoke_test")
+    print generated_code
+    assert generated_code.find(expected_output) != -1
+
+
+def test_offset_any_all_points_no_deref():
+    '''Test that we can generate code without a de-referencing routine
+    for a kernel that will operate with any offset and writes to a
+    field on all points
+
+    '''
+    _, invoke_info = parse(os.path.
+                           join(os.path.
+                                dirname(os.path.
+                                        abspath(__file__)),
+                                "test_files", "gocean1p0",
+                                "test24_any_offset_all_update" +
+                                "_one_invoke.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
@@ -982,7 +1840,7 @@ def test_goschedule_str():
 
 
 def test_gosched_ijstop():
-    ''' Test that the GOSchedule.{i,j}loop_stop rais an error if
+    ''' Test that the GOSchedule.{i,j}loop_stop raise an error if
     constant loop bounds are not being used '''
     _, invoke_info = parse(os.path.join(os.path.
                                         dirname(os.path.
