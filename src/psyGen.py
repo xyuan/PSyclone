@@ -1291,10 +1291,13 @@ class Kern(Call):
     def is_coloured(self, fspace=""):
         ''' Returns True if this kernel is called from within a coloured
         loop over the specified function space. If function space is not
-        specified then the space of the coloured loop is ignored. '''
-        if self.parent.loop_type == "colour":
+        specified then the space of the coloured loop is ignored. If this
+        kernel does not have a parent Loop (e.g. because it is being
+        constructed by the stub generator) then we return False '''
+        parent_loop = self.ancestor(Loop)
+        if parent_loop and parent_loop.loop_type == "colour":
             if fspace:
-                return fspace == self.parent.field_space
+                return fspace == parent_loop.field_space
             else:
                 return True
         return False
