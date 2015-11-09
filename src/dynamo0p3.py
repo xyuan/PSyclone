@@ -915,16 +915,23 @@ class DynInvoke(Invoke):
                                    kind="r_def",
                                    entity_decls=operator_declarations))
 
-        if self.coloured_loops():
-            # Add declarations of the colour map and array holding the
-            # no. of cells of each colour
-            invoke_sub.add(DeclGen(parent, datatype="integer",
-                                   pointer=True,
-                                   entity_decls=["cmap(:,:)",
-                                                 "ncp_colour(:)"]))
-            # Declaration of variable to hold the number of colours
-            invoke_sub.add(DeclGen(parent, datatype="integer",
-                                   entity_decls=["ncolour"]))
+        # TODO this is a duplicate of the code in 2layer
+        cloops = self.coloured_loops()
+        if cloops:
+            coloured_spaces = []
+            for loop in cloops:
+                if loop.field_space not in coloured_spaces:
+                    coloured_spaces.append(loop.field_space)
+                    suffix = "_" + loop.field_space
+                    # Add declarations of the colour map and array holding the
+                    # no. of cells of each colour
+                    invoke_sub.add(DeclGen(parent, datatype="integer",
+                                           pointer=True,
+                                           entity_decls=["cmap"+suffix+"(:,:)",
+                                                         "ncp_colour"+suffix+"(:)"]))
+                    # Declaration of variable to hold the number of colours
+                    invoke_sub.add(DeclGen(parent, datatype="integer",
+                                           entity_decls=["ncolour"+suffix]))
 
         if self.qr_required:
             # add calls to compute the values of any basis arrays
@@ -1450,6 +1457,8 @@ class DynInvoke(Invoke):
             for loop in cloops:
                 if loop.field_space not in coloured_spaces:
                     coloured_spaces.append(loop.field_space)
+                    # Get an argument that is on this (coloured) space
+                    arg_on_space = self.arg_for_funcspace(loop.field_space)
                     suffix = "_" + loop.field_space
                     # Add declarations of the colour map and array holding the
                     # no. of cells of each colour for each space
@@ -1466,8 +1475,8 @@ class DynInvoke(Invoke):
                     invoke_sub.add(CommentGen(invoke_sub, ""))
                     invoke_sub.add(CommentGen(invoke_sub, " Look-up colour maps"))
                     invoke_sub.add(CommentGen(invoke_sub, ""))
-                    name = arg.proxy_name_indexed + \
-                           "%" + arg.ref_name + "%get_colours"
+                    name = arg_on_space.proxy_name_indexed + \
+                           "%" + arg_on_space.ref_name + "%get_colours"
                     colour_vars = ["ncolour"+suffix,
                                    "ncp_colour"+suffix,
                                    "cmap"+suffix]
