@@ -978,6 +978,56 @@ def test_any_space_1():
     _, invoke_info = parse(os.path.join(BASE_PATH, "11_any_space.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    generated_code = str(psy.gen)
+    print generated_code
+    assert generated_code.find(
+        "      INTEGER, pointer :: map_any_space_2(:,:) => null()\n"
+        "      INTEGER, pointer :: map_any_space_1(:,:) => null()") != -1
+    assert generated_code.find(
+        "REAL(KIND=r_def), allocatable :: basis_any_space_1(:,:,:,:), "
+        "basis_any_space_2(:,:,:,:)") != -1
+    assert generated_code.find(
+        "ALLOCATE (basis_any_space_1(dim_any_space_1, ndf_any_space_1, "
+        "nqp_h, nqp_v))") != -1
+    assert generated_code.find(
+        "ALLOCATE (basis_any_space_2(dim_any_space_2, ndf_any_space_2, "
+        "nqp_h, nqp_v))") != -1
+    assert generated_code.find(
+        "map_w0 => c_proxy(1)%vspace%get_dofmap()") != -1
+    assert generated_code.find(
+        "map_any_space_1 => a_proxy%vspace%get_dofmap()") != -1
+    assert generated_code.find(
+        "map_any_space_2 => b_proxy%vspace%get_dofmap()") != -1
+    assert generated_code.find(
+        "CALL invoke_0_testkern_any_space_1_type_arrays(a_proxy%data, "
+        "b_proxy%data, c_proxy(1)%data, c_proxy(2)%data, c_proxy(3)%data, "
+        "ncells, nlayers, nqp_h, nqp_v, wh, wv, ndf_any_space_1, "
+        "undf_any_space_1, map_any_space_1, dim_any_space_1, "
+        "basis_any_space_1, ndf_any_space_2, undf_any_space_2, "
+        "map_any_space_2, dim_any_space_2, basis_any_space_2, ndf_w0, "
+        "undf_w0, map_w0, diff_dim_w0, diff_basis_w0)") != -1
+    assert generated_code.find(
+        "CALL testkern_any_space_1_code(nlayers, a_proxy, b_proxy"
+        ", c_proxy_1, c_proxy_2, c_proxy_3, ndf_a"
+        "ny_space_1, undf_any_space_1, map_any_space_1(:,cell), basis_any_space"
+        "_1, ndf_any_space_2, undf_any_space_2, map_any_space_2(:,cell), basis_"
+        "any_space_2, ndf_w0, undf_w0, map_w0(:,cell), diff_basis_w0, nqp_h, nq"
+        "p_v, wh, wv)") != -1
+    assert generated_code.find(
+        "DEALLOCATE (basis_any_space_1, basis_any_space_2, diff_basis_w"
+        "0)") != -1
+
+
+def test_any_space_1_no_deref():
+    '''tests that any_space is implemented correctly in the PSy layer
+    when no de-ref routine is being generated. Includes more than one
+    type of any_space delcaration and func_type basis functions on
+    any_space.
+
+    '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "11_any_space.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
