@@ -1137,6 +1137,42 @@ def test_kernel_specific():
     _, invoke_info = parse(os.path.join(BASE_PATH, "12_kernel_specific.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    code = str(psy.gen)
+    print code
+    assert code.find("USE enforce_bc_kernel_mod, ONLY: enforce_bc_code") != -1
+    assert code.find("USE function_space_mod, ONLY: w2") != -1
+    assert code.find("INTEGER fs") != -1
+    assert code.find(
+        "INTEGER, pointer :: boundary_dofs_w2(:,:) => null()") != -1
+    assert code.find("fs = f1%which_function_space()") != -1
+    assert code.find(
+        "CALL invoke_0_matrix_vector_kernel_mm_type_arrays(f1_proxy%data, "
+        "f2_proxy%data, f3_proxy%ncell_3d, f3_proxy_local_stencil, ncells, "
+        "nlayers, ndf_any_space_1, undf_any_space_1, map_any_space_1, fs, "
+        "boundary_dofs_w2)") != -1
+    assert code.find('''IF (fs .eq. w2) THEN
+        boundary_dofs_w2 => f1_proxy%vspace%get_boundary_dofs()
+      END IF''') != -1
+    assert code.find(
+        "IF (fs .eq. w2) THEN\n"
+        "          CALL enforce_bc_code(nlayers, f1_proxy, "
+        "ndf_any_space_1, undf_any_space_1, map_any_space_1(:,cell), "
+        "boundary_dofs_w2)") != -1
+
+
+def test_kernel_specific_no_deref():
+    '''tests that kernel-specific code is added to the
+    matrix_vector_kernel_mm kernel when not creating a de-ref
+    routine. This code is required as the dynamo0.3 api does not know
+    about boundary conditions but this kernel requires them. This
+    "hack" is only supported to get PSyclone to generate correct code
+    for the current implementation of dynamo. Future API's will not
+    support any hacks.
+
+    '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "12_kernel_specific.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
@@ -1151,10 +1187,10 @@ def test_kernel_specific():
     assert str(generated_code).find(output2) != -1
     output3 = "INTEGER, pointer :: boundary_dofs_w2(:,:) => null()"
     assert str(generated_code).find(output3) != -1
-    output4 = "fs = f2%which_function_space()"
+    output4 = "fs = f1%which_function_space()"
     assert str(generated_code).find(output4) != -1
     output5 = '''IF (fs .eq. w2) THEN
-        boundary_dofs_w2 => f2_proxy%vspace%get_boundary_dofs()
+        boundary_dofs_w2 => f1_proxy%vspace%get_boundary_dofs()
       END IF'''
     assert str(generated_code).find(output5) != -1
     output6 = (
@@ -1177,19 +1213,52 @@ def test_bc_kernel():
                                         "12.2_enforce_bc_kernel.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    generated_code = str(psy.gen)
+    print generated_code
+    assert generated_code.find(
+        "INTEGER, pointer :: boundary_dofs_w2(:,:) => null()") != -1
+    assert generated_code.find(
+        "boundary_dofs_w2 => a_proxy%vspace%get_boundary_dofs()") != -1
+    assert generated_code.find(
+        "CALL invoke_0_enforce_bc_kernel_type_arrays(a_proxy%data, "
+        "ncells, nlayers, ndf_any_space_1, undf_any_space_1, "
+        "map_any_space_1, boundary_dofs_w2)") != -1
+    assert generated_code.find(
+        "INTEGER, intent(in), dimension(ndf_any_space_1,2) :: "
+        "boundary_dofs_w2") != -1
+    assert generated_code.find(
+        "CALL enforce_bc_code(nlayers, a_proxy, ndf_any_space_1, "
+        "undf_any_space_1, map_any_space_1(:,cell), boundary_dofs_w2)") != -1
+
+
+def test_bc_kernel_no_deref():
+    '''tests that a kernel with a particular name is recognised as a
+    boundary condition kernel and that appopriate code is added to
+    support this when we are not generated a de-ref routine. This code
+    is required as the dynamo0.3 api does not know about boundary
+    conditions but this kernel requires them. This "hack" is only
+    supported to get PSyclone to generate correct code for the current
+    implementation of dynamo. Future API's will not support any
+    hacks.
+
+    '''
+    _, invoke_info = parse(os.path.join(BASE_PATH,
+                                        "12.2_enforce_bc_kernel.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
     schedule.deref_routine = False
     generated_code = str(psy.gen)
     print generated_code
-    output1 = "INTEGER, pointer :: boundary_dofs(:,:) => null()"
+    output1 = "INTEGER, pointer :: boundary_dofs_w2(:,:) => null()"
     assert generated_code.find(output1) != -1
-    output2 = "boundary_dofs => a_proxy%vspace%get_boundary_dofs()"
+    output2 = "boundary_dofs_w2 => a_proxy%vspace%get_boundary_dofs()"
     assert generated_code.find(output2) != -1
     output3 = (
         "CALL enforce_bc_code(nlayers, a_proxy%data, ndf_any_space_1, "
-        "undf_any_space_1, map_any_space_1(:,cell), boundary_dofs)")
+        "undf_any_space_1, map_any_space_1(:,cell), boundary_dofs_w2)")
     assert generated_code.find(output3) != -1
 
 
@@ -1968,7 +2037,7 @@ def test_enforce_bc_kernel_stub_gen():
         "    IMPLICIT NONE\n"
         "    CONTAINS\n"
         "    SUBROUTINE enforce_bc_code(nlayers, field_1_any_space_1, "
-        "ndf_any_space_1, undf_any_space_1, map_any_space_1, boundary_dofs)\n"
+        "ndf_any_space_1, undf_any_space_1, map_any_space_1, boundary_dofs_w2)\n"
         "      USE constants_mod, ONLY: r_def\n"
         "      IMPLICIT NONE\n"
         "      INTEGER, intent(in) :: nlayers\n"
@@ -1979,7 +2048,7 @@ def test_enforce_bc_kernel_stub_gen():
         "      INTEGER, intent(in), dimension(ndf_any_space_1) :: "
         "map_any_space_1\n"
         "      INTEGER, intent(in), dimension(ndf_any_space_1,2) :: "
-        "boundary_dofs\n"
+        "boundary_dofs_w2\n"
         "    END SUBROUTINE enforce_bc_code\n"
         "  END MODULE enforce_bc_mod")
     print output

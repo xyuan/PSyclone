@@ -608,9 +608,10 @@ class DynInvoke(Invoke):
         required.
 
         '''
+        bc_kernels = ["matrix_vector_mm_code", "enforce_bc_code"]
         # look in each kernel
         for kern_call in self.schedule.kern_calls():
-            if kern_call.name == "matrix_vector_mm_code":
+            if kern_call.name in bc_kernels:
                 return kern_call
         return None
 
@@ -980,9 +981,9 @@ class DynInvoke(Invoke):
             # conditions
             # In matrix_vector_mm_code, all fields are on the same
             # (unknown) space. Therefore we can use any field to
-            # dereference. We choose the 2nd one as that is what is
-            # done in the manual implementation.
-            reference_arg = bc_kern.arguments.args[1]
+            # dereference. We now choose the first one as that also works
+            # for the case where the kernel is enforce_bc_code
+            reference_arg = bc_kern.arguments.args[0]
             enforce_bc_arg = bc_kern.arguments.args[0]
             space_name = "w2"
             kern_func_space_name = enforce_bc_arg.function_space
@@ -1491,15 +1492,16 @@ class DynInvoke(Invoke):
                     invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
                                                   datatype="integer",
                                                   intent="in",
-                                                  entity_decls=["ncolour"+suffix]))
+                                                  entity_decls=["ncolour"+
+                                                                suffix]))
                     invoke_sub_arrays.add(\
                                     DeclGen(invoke_sub_arrays,
                                             datatype="integer",
                                             intent="in",
                                             entity_decls=\
                                             ["cmap"+suffix+"(:,:)",
-                                             "ncp_colour"+suffix+"(ncolour"+suffix+")"]))
-
+                                             "ncp_colour"+suffix+
+                                             "(ncolour"+suffix+")"]))
         if self.qr_required:
             # add calls to compute the values of any basis arrays
             invoke_sub.add(CommentGen(invoke_sub, ""))
@@ -1546,9 +1548,10 @@ class DynInvoke(Invoke):
             # conditions
             # In matrix_vector_mm_code, all fields are on the same
             # (unknown) space. Therefore we can use any field to
-            # dereference. We choose the 2nd one as that is what is
-            # done in the manual implementation.
-            reference_arg = bc_kern.arguments.args[1]
+            # dereference. We choose the 1st one as that is compatible
+            # with the case where the enforce_bc_code kernel is being
+            # invoked directly.
+            reference_arg = bc_kern.arguments.args[0]
             enforce_bc_arg = bc_kern.arguments.args[0]
             space_name = "w2"
             kern_func_space_name = enforce_bc_arg.function_space
@@ -1563,11 +1566,21 @@ class DynInvoke(Invoke):
             fs_name = self._name_space_manager.create_name(root_name="fs",
                                                            context="psy2",
                                                            label="bc_fs_name")
-            psy2_caller_args.append(fs_name)
-            psy2_dummy_args.append(fs_name)
+            # For this particular kernel we must pass down the function space
+            # so that we can test whether to call enforce_bc_code after
+            # the kernel.
+            # This is a "hack" for the current Dynamo implementation and
+            # will be removed in future Dynamo APIs.
+            if bc_kern.name == "matrix_vector_mm_code":
+                psy2_caller_args.append(fs_name)
+                psy2_dummy_args.append(fs_name)
+                invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                              datatype="integer",
+                                              intent="in",
+                                              entity_decls=[fs_name]))
 
             # Again, we supply a context and a label so that we can
-            # look-up this name in the DynKern::gen_code() method
+            # look-up this name in the DynKern::gen_code() method.
             boundary_dofs_name = self._name_space_manager.create_name(
                 root_name="boundary_dofs_"+space_name,
                 context="psy2",
@@ -1589,10 +1602,6 @@ class DynInvoke(Invoke):
             invoke_sub.add(DeclGen(invoke_sub,
                                    datatype="integer",
                                    entity_decls=[fs_name]))
-            invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
-                                          datatype="integer",
-                                          intent="in",
-                                          entity_decls=[fs_name]))
             invoke_sub.add(AssignGen(invoke_sub, lhs=fs_name,
                                      rhs=reference_arg.name +
                                      "%which_function_space()"))
@@ -2151,21 +2160,21 @@ class DynKern(Kern):
             # condition kernel (enforce_bc_kernel) arguments
             if self.name.lower() == "enforce_bc_code" and \
                unique_fs.lower() == "any_space_1":
-                arglist.append("boundary_dofs")
+                arglist.append("boundary_dofs_w2")
                 if my_type == "subroutine":
                     ndf_name = self._fs_descriptors.ndf_name("any_space_1")
                     parent.add(DeclGen(parent, datatype="integer", intent="in",
                                        dimension=ndf_name+",2",
-                                       entity_decls=["boundary_dofs"]))
-                if my_type == "call":
+                                       entity_decls=["boundary_dofs_w2"]))
+                if my_type == "call" and not self._deref_routine:
                     parent.add(DeclGen(parent, datatype="integer",
                                        pointer=True, entity_decls=[
-                                           "boundary_dofs(:,:) => null()"]))
+                                           "boundary_dofs_w2(:,:) => null()"]))
                     proxy_name = self._arguments.get_field("any_space_1").\
-                        proxy_name
+                                 proxy_name
                     new_parent, position = parent.start_parent_loop()
                     new_parent.add(AssignGen(new_parent, pointer=True,
-                                             lhs="boundary_dofs",
+                                             lhs="boundary_dofs_w2",
                                              rhs=proxy_name +
                                              "%vspace%get_boundary_dofs()"),
                                    position=["before", position])
