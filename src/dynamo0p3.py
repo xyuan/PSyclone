@@ -1158,39 +1158,6 @@ class DynInvoke(Invoke):
                            datatype="operator_proxy_type",
                            entity_decls=op_proxy_decs))
 
-        # Initialise the number of layers
-        invoke_sub.add(CommentGen(invoke_sub, ""))
-        invoke_sub.add(CommentGen(invoke_sub,
-                                  " Initialise number of cells & layers"))
-        invoke_sub.add(CommentGen(invoke_sub, ""))
-        # use the first argument
-        first_var = self.psy_unique_vars[0]
-        # use our namespace manager to create a unique name unless
-        # the context and label match and in this case return the
-        # previous name
-        nlayers_name = self._name_space_manager.create_name(
-            root_name="nlayers", context="PSyVars", label="nlayers")
-        ncells_name = self._name_space_manager.create_name(
-            root_name="ncells", context="PSyVars", label="ncells")
-
-        # Add these to the list of arguments we will pass down to PSy2
-        psy2_caller_args.extend([ncells_name, nlayers_name])
-        psy2_dummy_args.extend([ncells_name, nlayers_name])
-
-        # Create declarations for them both in PSy1 and PSy2. We insert
-        # them at index 0 so that they are declared before any arrays
-        # that may use them to specify extents.
-        # TODO could we have declarations for integer, intent=in arguments
-        # bubble up so that they are always before any array declarations
-        # that may use them for dimensioning?
-        invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
-                               entity_decls = [ncells_name, nlayers_name]))
-        invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
-                                      datatype="integer",
-                                      intent="in",
-                                      entity_decls = [ncells_name,
-                                                      nlayers_name]))
-
         # If we have one or more operators then initialise arrays for them
         op_list = self.unique_args("gh_operator", proxy=True)
         if len(op_list):
@@ -1226,6 +1193,47 @@ class DynInvoke(Invoke):
             invoke_sub.add(DeclGen(invoke_sub, datatype="real",
                                    kind="r_def", pointer=True,
                                    entity_decls=[stencil_name+"(:,:,:) => null()"]))
+
+        # Initialise the number of layers and cells now that we've looked-up
+        # our proxies
+        invoke_sub.add(CommentGen(invoke_sub, ""))
+        invoke_sub.add(CommentGen(invoke_sub,
+                                  " Initialise number of cells & layers"))
+        invoke_sub.add(CommentGen(invoke_sub, ""))
+        # use the first argument
+        first_var = self.psy_unique_vars[0]
+        # use our namespace manager to create a unique name unless
+        # the context and label match and in this case return the
+        # previous name
+        nlayers_name = self._name_space_manager.create_name(
+            root_name="nlayers", context="PSyVars", label="nlayers")
+        ncells_name = self._name_space_manager.create_name(
+            root_name="ncells", context="PSyVars", label="ncells")
+
+        # Add these to the list of arguments we will pass down to PSy2
+        psy2_caller_args.extend([ncells_name, nlayers_name])
+        psy2_dummy_args.extend([ncells_name, nlayers_name])
+
+        # Create declarations for them both in PSy1 and PSy2. We insert
+        # them at index 0 so that they are declared before any arrays
+        # that may use them to specify extents.
+        # TODO could we have declarations for integer, intent=in arguments
+        # bubble up so that they are always before any array declarations
+        # that may use them for dimensioning?
+        invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
+                               entity_decls = [ncells_name, nlayers_name]))
+        invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
+                                      datatype="integer",
+                                      intent="in",
+                                      entity_decls = [ncells_name,
+                                                      nlayers_name]))
+        # Create the actual assignments
+        invoke_sub.add(AssignGen(invoke_sub, lhs=nlayers_name,
+                       rhs=first_var.proxy_name_indexed + "%" +
+                       first_var.ref_name + "%get_nlayers()"))
+        invoke_sub.add(AssignGen(invoke_sub, lhs=ncells_name,
+                                 rhs=first_var.proxy_name_indexed + "%" +
+                                 first_var.ref_name + "%get_ncell()"))
 
         if self.qr_required:
             # declare and initialise qr values
@@ -1270,14 +1278,6 @@ class DynInvoke(Invoke):
             for qr_var in qr_vars:
                 invoke_sub.add(AssignGen(invoke_sub, lhs=qr_var,
                                rhs=qr_var_name + "%get_" + qr_var + "()"))
-
-        # Now that we've looked-up proxies we can get at nlayers and ncells
-        invoke_sub.add(AssignGen(invoke_sub, lhs=nlayers_name,
-                       rhs=first_var.proxy_name_indexed + "%" +
-                       first_var.ref_name + "%get_nlayers()"))
-        invoke_sub.add(AssignGen(invoke_sub, lhs=ncells_name,
-                                 rhs=first_var.proxy_name_indexed + "%" +
-                                 first_var.ref_name + "%get_ncell()"))
 
         psy1_operator_declarations = []
         psy2_operator_declarations = []
