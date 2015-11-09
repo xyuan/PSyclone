@@ -379,7 +379,10 @@ def test_field_no_deref():
         "    CONTAINS\n"
         "    SUBROUTINE invoke_0_testkern_type(f1, f2, m1, m2)\n"
         "      USE testkern, ONLY: testkern_code\n"
-        "      TYPE(field_type), intent(inout) :: f1, f2, m1, m2\n"
+        "      TYPE(field_type), intent(inout) :: f1\n"
+        "      TYPE(field_type), intent(inout) :: f2\n"
+        "      TYPE(field_type), intent(inout) :: m1\n"
+        "      TYPE(field_type), intent(inout) :: m2\n"
         "      INTEGER cell\n"
         "      INTEGER ndf_w1, undf_w1, ndf_w2, undf_w2, ndf_w3, undf_w3\n"
         "      INTEGER, pointer :: map_w3(:,:) => null()\n"
@@ -395,7 +398,7 @@ def test_field_no_deref():
         "      m1_proxy = m1%get_proxy()\n"
         "      m2_proxy = m2%get_proxy()\n"
         "      !\n"
-        "      ! Initialise number of layers\n"
+        "      ! Initialise number of cells & layers\n"
         "      !\n"
         "      nlayers = f1_proxy%vspace%get_nlayers()\n"
         "      ncells = f1_proxy%vspace%get_ncell()\n"
@@ -597,7 +600,10 @@ def test_field_qr_no_deref():
     output = (
         "    SUBROUTINE invoke_0_testkern_qr_type(f1, f2, m1, m2, qr)\n"
         "      USE testkern_qr, ONLY: testkern_qr_code\n"
-        "      TYPE(field_type), intent(inout) :: f1, f2, m1, m2\n"
+        "      TYPE(field_type), intent(inout) :: f1\n"
+        "      TYPE(field_type), intent(inout) :: f2\n"
+        "      TYPE(field_type), intent(inout) :: m1\n"
+        "      TYPE(field_type), intent(inout) :: m2\n"
         "      TYPE(quadrature_type), intent(in) :: qr\n"
         "      INTEGER cell\n"
         "      REAL(KIND=r_def), allocatable :: basis_w1(:,:,:,:), "
@@ -621,7 +627,7 @@ def test_field_qr_no_deref():
         "      m1_proxy = m1%get_proxy()\n"
         "      m2_proxy = m2%get_proxy()\n"
         "      !\n"
-        "      ! Initialise number of layers\n"
+        "      ! Initialise number of cells & layers\n"
         "      !\n"
         "      nlayers = f1_proxy%vspace%get_nlayers()\n"
         "      ncells = f1_proxy%vspace%get_ncell()\n"
@@ -719,7 +725,8 @@ def test_vector_field_no_deref():
     code = str(psy.gen)
     print code
     assert "SUBROUTINE invoke_0_testkern_chi_type(f1, chi)" in code
-    assert "TYPE(field_type), intent(inout) :: f1, chi(3)" in code
+    assert "TYPE(field_type), intent(inout) :: f1" in code
+    assert "TYPE(field_type), intent(inout) :: chi(3)" in code
     assert "chi_proxy(2) = chi(2)%get_proxy()" in code
     assert "testkern_code(nlayers, f1_proxy%data, chi_proxy(1)%data" in code
 
