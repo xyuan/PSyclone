@@ -1279,6 +1279,30 @@ def test_multikernel_invoke_1():
     assert str(generated_code).count(output2) == 1
 
 
+def test_multikernel_invoke_1_no_deref():
+    '''Test that correct code is produced when there are multiple kernels
+    within an invoke and we are not generating a de-ref routine. We
+    test the parts of the code that are incorrect at the time of
+    writing
+
+    '''
+    _, invoke_info = parse(os.path.join(BASE_PATH,
+                                        "4_multikernel_invokes.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+    generated_code = psy.gen
+    # check that argument names are not replicated
+    output1 = "SUBROUTINE invoke_0(f1, f2, m1, m2)"
+    assert str(generated_code).find(output1) != -1
+    # check that only one proxy initialisation is produced
+    output2 = "f1_proxy = f1%get_proxy()"
+    assert str(generated_code).count(output2) == 1
+
+
 def test_multikernel_invoke_qr():
     ''' Test that correct code is produced when there are multiple
     kernels with (the same) QR within an invoke. '''
@@ -1286,6 +1310,14 @@ def test_multikernel_invoke_qr():
                                         "4.1_multikernel_invokes.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    generated_code = psy.gen
+    # simple check that two kernel calls exist
+    assert str(generated_code).count("CALL testkern_qr_code") == 2
+
+    # Now repeat with the de-referencing routine switched off
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    schedule.deref_routine = False
     generated_code = psy.gen
     # simple check that two kernel calls exist
     assert str(generated_code).count("CALL testkern_qr_code") == 2
@@ -1298,13 +1330,40 @@ def test_mkern_invoke_vec_fields():
                                         "4.2_multikernel_invokes.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
-    generated_code = psy.gen
+    generated_code = str(psy.gen)
+    print generated_code
     # 1st test for duplication of name vector-field declaration
-    output1 = "TYPE(field_type), intent(inout) :: f1, chi(3), chi(3)"
-    assert str(generated_code).find(output1) == -1
+    assert generated_code.find(
+        "TYPE(field_type), intent(inout) :: f1, chi(3), chi(3)") == -1
     # 2nd test for duplication of name vector-field declaration
-    output2 = "TYPE(field_proxy_type) f1_proxy, chi_proxy(3), chi_proxy(3)"
-    assert str(generated_code).find(output2) == -1
+    assert generated_code.find(
+        "TYPE(field_proxy_type) f1_proxy, chi_proxy(3), chi_proxy(3)") == -1
+    assert "SUBROUTINE invoke_0_arrays(f1_proxy, chi_proxy_1, "\
+        "chi_proxy_2, chi_proxy_3" in generated_code
+    assert generated_code.count(
+        "CALL testkern_code(nlayers, f1_proxy, chi_proxy_1, chi_proxy_2, "
+        "chi_proxy_3, ndf_w0, undf_w0, map_w0(:,cell))") == 2
+
+
+def test_mkern_invoke_vec_fields_no_deref():
+    ''' Test that correct code is produced when there are multiple
+    kernels within an invoke with vector fields and no de-referencing
+    routine is being generated '''
+    _, invoke_info = parse(os.path.join(BASE_PATH,
+                                        "4.2_multikernel_invokes.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    schedule.deref_routine = False
+    generated_code = str(psy.gen)
+    print generated_code
+    # 1st test for duplication of name vector-field declaration
+    assert generated_code.find(
+        "TYPE(field_type), intent(inout) :: f1, chi(3), chi(3)") == -1
+    # 2nd test for duplication of name vector-field declaration
+    assert generated_code.find(
+        "TYPE(field_proxy_type) f1_proxy, chi_proxy(3), chi_proxy(3)") == -1
 
 
 def test_multikern_invoke_orient():
@@ -1324,6 +1383,27 @@ def test_multikern_invoke_orient():
     assert str(generated_code).find(output2) == -1
 
 
+def test_multikern_invoke_orient_no_deref():
+    '''Test that correct code is produced without a de-ref routine when
+    there are multiple kernels within an invoke with orientation
+
+    '''
+    _, invoke_info = parse(os.path.join(BASE_PATH,
+                                        "4.3_multikernel_invokes.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    invoke.schedule.deref_routine = False
+    generated_code = psy.gen
+    # 1st test for duplication of name vector-field declaration
+    output1 = "TYPE(field_type), intent(inout) :: f1, f2, f3(3), f3(3)"
+    assert str(generated_code).find(output1) == -1
+    # 2nd test for duplication of name vector-field declaration
+    output2 = (
+        "TYPE(field_proxy_type) f1_proxy, f2_proxy, f3_proxy(3), f3_proxy(3)")
+    assert str(generated_code).find(output2) == -1
+
+
 def test_multikern_invoke_oper():
     ''' Test that correct code is produced when there are multiple
     kernels within an invoke with operators '''
@@ -1331,6 +1411,26 @@ def test_multikern_invoke_oper():
                                         "4.4_multikernel_invokes.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    generated_code = psy.gen
+    # 1st test for duplication of name vector-field declaration
+    output1 = "TYPE(field_type), intent(inout) :: f1(3), f1(3)"
+    assert str(generated_code).find(output1) == -1
+    # 2nd test for duplication of name vector-field declaration
+    output2 = "TYPE(field_proxy_type) f1_proxy(3), f1_proxy(3)"
+    assert str(generated_code).find(output2) == -1
+
+
+def test_multikern_invoke_oper_no_deref():
+    '''Test that correct code is produced without a de-ref routine when
+    there are multiple kernels within an invoke with operators
+
+    '''
+    _, invoke_info = parse(os.path.join(BASE_PATH,
+                                        "4.4_multikernel_invokes.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    invoke.schedule.deref_routine = False
     generated_code = psy.gen
     # 1st test for duplication of name vector-field declaration
     output1 = "TYPE(field_type), intent(inout) :: f1(3), f1(3)"
