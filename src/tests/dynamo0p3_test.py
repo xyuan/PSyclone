@@ -776,9 +776,52 @@ def test_orientation():
                                "get_orientation()") != -1
 
 
+def test_orientation_no_deref():
+    ''' tests that orientation information is created correctly in
+    the PSy layer when we do not have a de-ref layer '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "9_orientation.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+    code = str(psy.gen)
+    print code
+    assert code.find("INTEGER, pointer :: orientation_w2(:,:)"
+                     " => null()") != -1
+    assert code.find("orientation_w2 => f2_proxy%vspace%"
+                     "get_orientation()") != -1
+    assert "ndf_w2, undf_w2, map_w2(:,cell), basis_w2, diff_basis_w2, "\
+        "orientation_w2(:,cell)" in code
+
+
 def test_operator():
     ''' tests that an operator is implemented correctly in the PSy
     layer '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "10_operator.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    code = str(psy.gen)
+    print code
+    assert "SUBROUTINE invoke_0_testkern_operator_type(mm_w0, chi, qr)" in code
+    assert "TYPE(operator_type), intent(inout) :: mm_w0" in code
+    assert "TYPE(operator_proxy_type) mm_w0_proxy" in code
+    assert "mm_w0_proxy = mm_w0%get_proxy()" in code
+    assert "CALL invoke_0_testkern_operator_type_arrays(chi_proxy(1)%data, "\
+        "chi_proxy(2)%data, chi_proxy(3)%data, mm_w0_proxy%ncell_3d, "\
+        "mm_w0_proxy_local_stencil, ncells, nlayers, nqp_h, nqp_v, wh, wv,"\
+        " ndf_w0, undf_w0, map_w0, dim_w0, basis_w0, diff_dim_w0, "\
+        "diff_basis_w0)" in code
+    assert "CALL testkern_operator_code(cell, nlayers, mm_w0_proxy_ncell_3d, "\
+        "mm_w0_proxy_local_stencil, chi_proxy_1, chi_proxy_2, chi_pr"\
+        "oxy_3, ndf_w0, undf_w0, map_w0(:,cell), basis_w0, diff_basis_w0, "\
+        "nqp_h, nqp_v, wh, wv)" in code
+
+
+def test_operator_no_deref():
+    ''' tests that an operator is implemented correctly in the PSy
+    layer when we do not have a de-ref. routine '''
     _, invoke_info = parse(os.path.join(BASE_PATH, "10_operator.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
