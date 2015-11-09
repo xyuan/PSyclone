@@ -706,6 +706,24 @@ def test_vector_field():
                                     " :: chi(3)") != -1
 
 
+def test_vector_field_no_deref():
+    ''' tests that a vector field is declared correctly in the PSy
+    layer '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "8_vector_field.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+    code = str(psy.gen)
+    print code
+    assert "SUBROUTINE invoke_0_testkern_chi_type(f1, chi)" in code
+    assert "TYPE(field_type), intent(inout) :: f1, chi(3)" in code
+    assert "chi_proxy(2) = chi(2)%get_proxy()" in code
+    assert "testkern_code(nlayers, f1_proxy%data, chi_proxy(1)%data" in code
+
+
 def test_vector_field_2():
     ''' Tests that a vector field is indexed correctly in the PSy layer. '''
     _, invoke_info = parse(os.path.join(BASE_PATH, "8_vector_field_2.f90"),
