@@ -1070,6 +1070,40 @@ def test_any_space_2():
     _, invoke_info = parse(os.path.join(BASE_PATH, "11.1_any_space.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    generated_code = str(psy.gen)
+    print generated_code
+    assert generated_code.find(
+        "INTEGER, pointer :: map_any_space_1(:,:) => null()") != -1
+    assert generated_code.find(
+        "INTEGER ndf_any_space_1, undf_any_space_1") != -1
+    assert generated_code.find(
+        "ncells = a_proxy%vspace%get_ncell()") != -1
+    assert generated_code.find(
+        "ndf_any_space_1 = a_proxy%vspace%get_ndf()") != -1
+    assert generated_code.find(
+        "undf_any_space_1 = a_proxy%vspace%get_undf()") != -1
+    assert generated_code.find(
+        "map_any_space_1 => a_proxy%vspace%get_dofmap()") != -1
+    assert generated_code.find(
+        "CALL invoke_0_testkern_any_space_2_type_arrays(a_proxy%data, "
+        "b_proxy%data, c_proxy%ncell_3d, c_proxy_local_stencil, ncells, "
+        "nlayers, ndf_any_space_1, undf_any_space_1, map_any_space_1)") != -1
+    assert generated_code.find(
+        "CALL testkern_any_space_2_code(cell, nlayers, a_proxy, b_pro"
+        "xy, c_proxy_ncell_3d, c_proxy_local_stencil, ndf_any_space_1"
+        ", undf_any_space_1, map_any_space_1(:,cell))") != -1
+
+
+def test_any_space_2_no_deref():
+    '''tests that any_space is implemented correctly in the PSy layer
+    when we have no de-ref routine. Includes multiple declarations of
+    the same space, no func_type declarations and any_space used with
+    an operator.
+
+    '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "11.1_any_space.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
