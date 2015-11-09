@@ -729,13 +729,37 @@ def test_vector_field_2():
     _, invoke_info = parse(os.path.join(BASE_PATH, "8_vector_field_2.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
-    generated_code = psy.gen
+    code = str(psy.gen)
+    print code
     # all references to chi_proxy should be chi_proxy(1)
-    assert str(generated_code).find("chi_proxy%") == -1
-    assert str(generated_code).count("chi_proxy(1)%vspace") == 5
+    assert code.find("chi_proxy%") == -1
+    assert code.count("chi_proxy(1)%vspace") == 5
     # use each chi field individually in the kernel
-    assert str(generated_code).find("chi_proxy(1)%data, chi_proxy(2)%data,"
-                                    " chi_proxy(3)%data") != -1
+    assert code.find("chi_proxy(1)%data, chi_proxy(2)%data,"
+                     " chi_proxy(3)%data") != -1
+    assert "REAL(KIND=r_def), intent(inout), dimension(undf_w0) :: "\
+        "chi_proxy_1, chi_proxy_2, chi_proxy_3" in code
+    assert "testkern_code(nlayers, chi_proxy_1, chi_proxy_2, chi_proxy_3" \
+        in code
+
+
+def test_vector_field_2_no_deref():
+    ''' Tests that a vector field is indexed correctly in the PSy layer when
+    we are not generating a deref routine. '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "8_vector_field_2.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-off generation of de-referencing routine
+    schedule.deref_routine = False
+    code = str(psy.gen)
+    print code
+    # all references to chi_proxy should be chi_proxy(1)
+    assert "chi_proxy%" not in code
+    assert code.count("chi_proxy(1)%vspace") == 5
+    # use each chi field individually in the kernel
+    assert "chi_proxy(1)%data, chi_proxy(2)%data, chi_proxy(3)%data" in code
 
 
 def test_orientation():
