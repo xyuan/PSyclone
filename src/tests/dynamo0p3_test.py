@@ -908,6 +908,46 @@ def test_operator_orientation():
                                         "10.2_operator_orient.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    gen_str = str(psy.gen)
+    print gen_str
+    assert gen_str.find("SUBROUTINE invoke_0_testkern_operator"
+                        "_orient_type(mm_w1, chi, qr)") != -1
+    assert gen_str.find("TYPE(operator_type), intent(inout) ::"
+                        " mm_w1") != -1
+    assert gen_str.find("TYPE(operator_proxy_type) mm_w1_"
+                        "proxy") != -1
+    assert gen_str.find("mm_w1_proxy = mm_w1%get_proxy()\n"
+                        "      mm_w1_proxy_local_stencil => "
+                        "mm_w1_proxy%local_stencil\n"
+                        "      !\n"
+                        "      ! Initialise number of cells & layers\n"
+                        "      !\n"
+                        "      nlayers = mm_w1_proxy%fs_from%get_nlayers()\n"
+                        "      ncells = mm_w1_proxy%fs_from%get_ncell()"
+                    ) != -1
+    assert gen_str.find(
+        "orientation_w1 => mm_w1_proxy%fs_from%get_orientation()") != -1
+    assert gen_str.find(
+        "CALL invoke_0_testkern_operator_orient_type_arrays(chi_proxy(1)%data,"
+        " chi_proxy(2)%data, chi_proxy(3)%data, mm_w1_proxy%ncell_3d, "
+        "mm_w1_proxy_local_stencil, ncells, nlayers, nqp_h, nqp_v, wh, wv, "
+        "ndf_w1, dim_w1, basis_w1, orientation_w1, ndf_w0, undf_w0, map_w0, "
+        "diff_dim_w0, diff_basis_w0)") != -1
+    assert gen_str.find(
+        "CALL testkern_operator_orient_code(cell, nlayers, mm_w1_proxy_ncell_"
+        "3d, mm_w1_proxy_local_stencil, chi_proxy_1, chi_proxy_2, chi_proxy_3,"
+        " ndf_w1, basis_w1, orientation_w1(:,cell), ndf_w0, undf_w0, "
+        "map_w0(:,cell), diff_basis_w0, nqp_h, nqp_v, wh, wv)") != -1
+
+
+def test_operator_orientation_no_deref():
+    ''' tests that an operator requiring orientation information is
+    implemented correctly in the PSy layer when we are not generating
+    a de-ref routine '''
+    _, invoke_info = parse(os.path.join(BASE_PATH,
+                                        "10.2_operator_orient.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
