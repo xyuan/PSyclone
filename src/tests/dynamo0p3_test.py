@@ -852,20 +852,49 @@ def test_operator_nofield():
                                         "10.1_operator_nofield.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    code = str(psy.gen)
+    print code
+    assert "SUBROUTINE invoke_0_testkern_operator_nofield_type(mm_w2, chi, "\
+        "qr)" in code
+    assert "TYPE(operator_type), intent(inout) :: mm_w2" in code
+    assert "TYPE(operator_proxy_type) mm_w2_proxy" in code
+    assert "mm_w2_proxy = mm_w2%get_proxy()" in code
+    assert "undf_w2" not in code
+    assert "map_w2" not in code
+    assert \
+        ("CALL invoke_0_testkern_operator_nofield_type_arrays(chi_proxy(1)%"
+         "data, chi_proxy(2)%data, chi_proxy(3)%data, mm_w2_proxy%ncell_3d, "
+         "mm_w2_proxy_local_stencil, ncells, nlayers, nqp_h, nqp_v, wh, wv, "
+         "ndf_w2, dim_w2, basis_w2, ndf_w0, undf_w0, map_w0, diff_dim_w0, "
+         "diff_basis_w0)") in code
+    assert \
+        ("CALL testkern_operator_code(cell, nlayers, mm_w2_proxy_ncell_3d,"
+        " mm_w2_proxy_local_stencil, chi_proxy_1, chi_proxy_2"
+        ", chi_proxy_3, ndf_w2, basis_w2, ndf_w0, undf_w0, map_w0(:,cell), "
+        "diff_basis_w0, nqp_h, nqp_v, wh, wv)") in code
+
+
+def test_operator_nofield_no_deref():
+    ''' tests that an operator with no field on the same space is
+    implemented correctly in the PSy layer '''
+    _, invoke_info = parse(os.path.join(BASE_PATH,
+                                        "10.1_operator_nofield.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
     schedule = invoke.schedule
     # Turn-off generation of de-referencing routine
     schedule.deref_routine = False
-    gen_code_str = str(psy.gen)
-    assert gen_code_str.find("SUBROUTINE invoke_0_testkern_operator_"
-                             "nofield_type(mm_w2, chi, qr)") != -1
-    assert gen_code_str.find("TYPE(operator_type), intent(inout) :: "
-                             "mm_w2") != -1
-    assert gen_code_str.find("TYPE(operator_proxy_type) mm_w2_proxy") != -1
-    assert gen_code_str.find("mm_w2_proxy = mm_w2%get_proxy()") != -1
-    assert gen_code_str.find("undf_w2") == -1
-    assert gen_code_str.find("map_w2") == -1
-    assert gen_code_str.find(
+    code = str(psy.gen)
+    assert code.find("SUBROUTINE invoke_0_testkern_operator_"
+                     "nofield_type(mm_w2, chi, qr)") != -1
+    assert code.find("TYPE(operator_type), intent(inout) :: "
+                     "mm_w2") != -1
+    assert code.find("TYPE(operator_proxy_type) mm_w2_proxy") != -1
+    assert code.find("mm_w2_proxy = mm_w2%get_proxy()") != -1
+    assert code.find("undf_w2") == -1
+    assert code.find("map_w2") == -1
+    assert code.find(
         "CALL testkern_operator_code(cell, nlayers, mm_w2_proxy%ncell_3d,"
         " mm_w2_proxy%local_stencil, chi_proxy(1)%data, chi_proxy(2)%data"
         ", chi_proxy(3)%data, ndf_w2, basis_w2, ndf_w0, undf_w0, map_w0(:,cell), "
