@@ -227,8 +227,8 @@ def test_loop_fuse_different_iterates_over():
         _, _ = lftrans.apply(schedule.children[0],
                              schedule.children[1])
 
-    # Turn off constant loop bounds (which should have no effect)
-    # and repeat
+    # Turn off the de-referencing routine and constant loop bounds
+    # (which should have no effect) and repeat
     newsched0, _ = dtrans.apply(schedule, deref=False)
     newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     with pytest.raises(TransformationError):
@@ -281,6 +281,8 @@ def test_omp_parallel_loop():
                 "      !$omp end parallel do")
     assert expected in gen
 
+    # Now switch-off the de-referencing routine and constant loop bounds
+    # and repeat the check
     newsched0, _ = dtrans.apply(omp_sched, deref=False)
     newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     invoke.schedule = newsched
@@ -464,8 +466,8 @@ def test_omp_region_no_slice_no_const_bounds():
     ompr = OMPParallelTrans()
     cbtrans = GOConstLoopBoundsTrans()
     dtrans = DereferenceTrans()
-    # Have to turn off the de-referencing routine as cannot have that
-    # without constant bounds
+    # Have to turn off the de-referencing routine as that requires
+    # constant bounds
     newsched0, _ = dtrans.apply(schedule, deref=False)
     newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     omp_schedule, _ = ompr.apply(newsched.children)
@@ -554,6 +556,8 @@ def test_omp_region_retains_kernel_order2():
     schedule = invoke.schedule
 
     ompr = OMPParallelTrans()
+    cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
 
     omp_schedule, _ = ompr.apply(schedule.children[0:2])
 
@@ -561,6 +565,30 @@ def test_omp_region_retains_kernel_order2():
     invoke.schedule = omp_schedule
     # Store the results of applying this code transformation as
     # a string
+    gen = str(psy.gen)
+    gen = gen.lower()
+
+    # Iterate over the lines of generated code
+    cu_idx = -1
+    cv_idx = -1
+    ts_idx = -1
+    for idx, line in enumerate(gen.split('\n')):
+        if 'call compute_cu' in line:
+            cu_idx = idx
+        if 'call compute_cv' in line:
+            cv_idx = idx
+        if 'call time_smooth' in line:
+            ts_idx = idx
+
+    # Kernels should be in order {compute_cu, compute_cv, time_smooth}
+    assert cu_idx < cv_idx and cv_idx < ts_idx
+
+    # Repeat after turning off constant loop bounds. Before we do that
+    # we must turn off the de-referencing routine since that requires
+    # constant loop bounds.
+    newsched0, _ = dtrans.apply(omp_schedule, deref=False)
+    newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
+    invoke.schedule = newsched
     gen = str(psy.gen)
     gen = gen.lower()
 
@@ -589,6 +617,8 @@ def test_omp_region_retains_kernel_order3():
 
     ompr = OMPParallelTrans()
     ompl = GOceanOMPLoopTrans()
+    cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
 
     # Put an OMP Do around the 2nd loop of the schedule
     omp_schedule, _ = ompl.apply(schedule.children[1])
@@ -618,6 +648,30 @@ def test_omp_region_retains_kernel_order3():
     # Kernels should be in order {compute_cu, compute_cv, time_smooth}
     assert cu_idx < cv_idx and cv_idx < ts_idx
 
+    # Repeat after turning off constant loop bounds. Before we do that
+    # we must turn off the de-referencing routine since that requires
+    # constant loop bounds.
+    newsched0, _ = dtrans.apply(omp_schedule, deref=False)
+    newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
+    invoke.schedule = newsched
+    gen = str(psy.gen)
+    gen = gen.lower()
+
+    # Iterate over the lines of generated code
+    cu_idx = -1
+    cv_idx = -1
+    ts_idx = -1
+    for idx, line in enumerate(gen.split('\n')):
+        if 'call compute_cu' in line:
+            cu_idx = idx
+        if 'call compute_cv' in line:
+            cv_idx = idx
+        if 'call time_smooth' in line:
+            ts_idx = idx
+
+    # Kernels should be in order {compute_cu, compute_cv, time_smooth}
+    assert cu_idx < cv_idx and cv_idx < ts_idx
+
 
 def test_omp_region_before_loops_trans():
     ''' Test of the OpenMP PARALLEL region transformation where
@@ -626,9 +680,12 @@ def test_omp_region_before_loops_trans():
     psy, invoke = get_invoke("single_invoke_two_kernels.f90", 0)
     schedule = invoke.schedule
 
+    ompr = OMPParallelTrans()
+    cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
+
     # Put all of the loops in the schedule within a single
     # OpenMP region
-    ompr = OMPParallelTrans()
     omp_schedule, _ = ompr.apply(schedule.children)
 
     # Put an OpenMP do directive around each loop contained
@@ -660,6 +717,29 @@ def test_omp_region_before_loops_trans():
     assert omp_do_idx != -1
     assert omp_do_idx - omp_region_idx == 1
 
+    # Repeat after turning off constant loop bounds. Before we do that
+    # we must turn off the de-referencing routine since that requires
+    # constant loop bounds.
+    newsched0, _ = dtrans.apply(omp_schedule, deref=False)
+    newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
+    invoke.schedule = newsched
+    gen = str(psy.gen)
+
+    # Iterate over the lines of generated code
+    omp_region_idx = -1
+    omp_do_idx = -1
+    for idx, line in enumerate(gen.split('\n')):
+        if '!$omp parallel default' in line:
+            omp_region_idx = idx
+        if '!$omp do' in line:
+            omp_do_idx = idx
+        if 'DO j=' in line:
+            break
+
+    assert omp_region_idx != -1
+    assert omp_do_idx != -1
+    assert omp_do_idx - omp_region_idx == 1
+
 
 def test_omp_region_after_loops_trans():
     ''' Test of the OpenMP PARALLEL region transformation where we
@@ -667,9 +747,12 @@ def test_omp_region_after_loops_trans():
     psy, invoke = get_invoke("single_invoke_two_kernels.f90", 0)
     schedule = invoke.schedule
 
+    ompl = GOceanOMPLoopTrans()
+    cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
+
     # Put an OpenMP do directive around each loop contained
     # in the schedule
-    ompl = GOceanOMPLoopTrans()
     for child in schedule.children:
         omp_schedule, _ = ompl.apply(child)
 
@@ -696,8 +779,29 @@ def test_omp_region_after_loops_trans():
         if 'DO j=' in line:
             break
 
-    assert omp_region_idx != -1
-    assert omp_do_idx != -1
+    assert omp_region_idx != -1 and omp_do_idx != -1
+    assert omp_do_idx - omp_region_idx == 1
+
+    # Repeat after turning off constant loop bounds. Before we do that
+    # we must turn off the de-referencing routine since that requires
+    # constant loop bounds.
+    newsched0, _ = dtrans.apply(schedule, deref=False)
+    newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
+    invoke.schedule = newsched
+    gen = str(psy.gen)
+
+    # Iterate over the lines of generated code
+    omp_region_idx = -1
+    omp_do_idx = -1
+    for idx, line in enumerate(gen.split('\n')):
+        if '!$omp parallel default' in line:
+            omp_region_idx = idx
+        if '!$omp do' in line:
+            omp_do_idx = idx
+        if 'DO j=' in line:
+            break
+
+    assert omp_region_idx != -1 and omp_do_idx != -1
     assert omp_do_idx - omp_region_idx == 1
 
 
@@ -1095,6 +1199,7 @@ def test_omp_do_schedule_runtime():
 
     ompl = GOceanOMPLoopTrans(omp_schedule="runtime")
     ompr = OMPParallelTrans()
+    dtrans = DereferenceTrans()
 
     # Put an OpenMP do directive around one loop
     omp_schedule, _ = ompl.apply(schedule.children[1])
@@ -1110,6 +1215,12 @@ def test_omp_do_schedule_runtime():
 
     assert '!$omp do schedule(runtime)' in gen
 
+    # Repeat the check after switching-off the de-referencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
+    invoke.schedule = schedule
+    gen = str(psy.gen)
+    assert '!$omp do schedule(runtime)' in gen
+
 
 def test_omp_do_schedule_dynamic():
     ''' Test that we can specify the schedule of an OMP do as
@@ -1119,6 +1230,7 @@ def test_omp_do_schedule_dynamic():
 
     ompl = GOceanOMPLoopTrans(omp_schedule="dynamic")
     ompr = OMPParallelTrans()
+    dtrans = DereferenceTrans()
 
     # Put an OpenMP do directive around one loop
     omp_schedule, _ = ompl.apply(schedule.children[1])
@@ -1134,6 +1246,12 @@ def test_omp_do_schedule_dynamic():
 
     assert '!$omp do schedule(dynamic)' in gen
 
+    # Repeat the check after switching-off the de-referencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
+    invoke.schedule = schedule
+    gen = str(psy.gen)
+    assert '!$omp do schedule(dynamic)' in gen
+
 
 def test_omp_do_schedule_guided():
     ''' Test that we can specify the schedule of an OMP do as
@@ -1143,6 +1261,7 @@ def test_omp_do_schedule_guided():
 
     ompl = GOceanOMPLoopTrans(omp_schedule="guided")
     ompr = OMPParallelTrans()
+    dtrans = DereferenceTrans()
 
     # Put an OpenMP do directive around one loop
     omp_schedule, _ = ompl.apply(schedule.children[1])
@@ -1156,6 +1275,12 @@ def test_omp_do_schedule_guided():
     # Attempt to generate the transformed code
     gen = str(psy.gen)
 
+    assert '!$omp do schedule(guided)' in gen
+
+    # Repeat the check after switching-off the de-referencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
+    invoke.schedule = schedule
+    gen = str(psy.gen)
     assert '!$omp do schedule(guided)' in gen
 
 
@@ -1174,6 +1299,7 @@ def test_omp_schedule_guided_with_chunk():
 
     ompl = GOceanOMPLoopTrans(omp_schedule="guided,10")
     ompr = OMPParallelTrans()
+    dtrans = DereferenceTrans()
 
     # Put an OpenMP do directive around one loop
     omp_schedule, _ = ompl.apply(schedule.children[1])
@@ -1187,6 +1313,12 @@ def test_omp_schedule_guided_with_chunk():
     # Attempt to generate the transformed code
     gen = str(psy.gen)
 
+    assert '!$omp do schedule(guided,10)' in gen
+
+    # Repeat the check after switching-off the de-referencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
+    invoke.schedule = schedule
+    gen = str(psy.gen)
     assert '!$omp do schedule(guided,10)' in gen
 
 
