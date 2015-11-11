@@ -1613,17 +1613,22 @@ class DynKern(Kern):
         invocation to the next and therefore require privatisation
         when parallelised. '''
         lvars = []
+        # Now that we're looking up whole maps (rather than the
+        # cell-by-cell approach) these maps are shared between
+        # threads. Therefore we do not need to add them to the list
+        # of variables that must be declared as private.
+ 
         # Dof maps for fields
-        for unique_fs in self.arguments.unique_fss:
-            if self.field_on_space(unique_fs):
-                # A map is required as there is a field on this space
-                lvars.append(self._fs_descriptors.map_name(unique_fs))
+        #for unique_fs in self.arguments.unique_fss:
+        #    if self.field_on_space(unique_fs):
+        #        # A map is required as there is a field on this space
+        #        lvars.append(self._fs_descriptors.map_name(unique_fs))
         # Orientation maps
-        for unique_fs in self.arguments.unique_fss:
-            if self._fs_descriptors.exists(unique_fs):
-                fs_descriptor = self._fs_descriptors.get_descriptor(unique_fs)
-                if fs_descriptor.orientation:
-                    lvars.append(fs_descriptor.orientation_name)
+        #for unique_fs in self.arguments.unique_fss:
+        #    if self._fs_descriptors.exists(unique_fs):
+        #        fs_descriptor = self._fs_descriptors.get_descriptor(unique_fs)
+        #        if fs_descriptor.orientation:
+        #            lvars.append(fs_descriptor.orientation_name)
         return lvars
 
     def field_on_space(self, func_space):
