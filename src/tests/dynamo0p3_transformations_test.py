@@ -16,7 +16,8 @@ from transformations import TransformationError, \
     Dynamo0p3OMPLoopTrans, \
     DynamoOMPParallelLoopTrans, \
     DynamoLoopFuseTrans, \
-    KernelModuleInlineTrans
+    KernelModuleInlineTrans, \
+    DereferenceTrans
 import os
 import pytest
 
@@ -56,6 +57,49 @@ def test_colour_trans_declarations():
     assert "integer ncolour" in gen
     assert "integer colour" in gen
     assert "integer, pointer :: cmap_w1(:,:), ncp_colour_w1(:)" in gen
+    # and that we're passing them into the deref routine
+    assert "subroutine invoke_0_testkern_type_arrays(f1_proxy, f2_proxy, "
+    "m1_proxy, m2_proxy, ncells, nlayers, ndf_w1, undf_w1, map_w1, ndf_w2, "
+    "undf_w2, map_w2, ndf_w3, undf_w3, map_w3, ncolour_w1, ncp_colour_w1, "
+    "cmap_w1)" in gen
+    assert "integer, intent(in), dimension(ndf_w1,0:ncells) :: map_w1" in gen
+
+
+def test_colour_trans_declarations_no_deref():
+    ''' Check that we generate the correct variable declarations
+    when doing a colouring transformation when the schedule has
+    no de-referencing routine '''
+    # test of the colouring transformation of a single loop
+    _, info = parse(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "test_files", "dynamo0p3",
+                                 "1_single_invoke.f90"),
+                    api=TEST_API)
+    psy = PSyFactory(TEST_API).create(info)
+    invoke = psy.invokes.get('invoke_0_testkern_type')
+    schedule = invoke.schedule
+    ctrans = Dynamo0p3ColourTrans()
+    dtrans = DereferenceTrans()
+    # Turn-off the de-referencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
+
+    # Colour the loop
+    cschedule, _ = ctrans.apply(schedule.children[0])
+
+    # Replace the original loop schedule with the transformed one
+    invoke.schedule = cschedule
+
+    # Store the results of applying this code transformation as
+    # a string
+    gen = str(psy.gen)
+    # Fortran is not case sensitive
+    gen = gen.lower()
+    print gen
+
+    # Check that we've declared the loop-related variables
+    # and colour-map pointers
+    assert "integer ncolour" in gen
+    assert "integer colour" in gen
+    assert "integer, pointer :: cmap_w1(:,:), ncp_colour_w1(:)" in gen
 
 
 def test_colour_trans():
@@ -69,6 +113,51 @@ def test_colour_trans():
     schedule = invoke.schedule
     ctrans = Dynamo0p3ColourTrans()
 
+    # Colour the loop
+    cschedule, _ = ctrans.apply(schedule.children[0])
+
+    # Replace the original loop schedule with the transformed one
+    invoke.schedule = cschedule
+
+    # Store the results of applying this code transformation as
+    # a string
+    gen = str(psy.gen)
+    # Fortran is not case sensitive
+    gen = gen.lower()
+    print gen
+
+    # Check that we're calling the API to get the no. of colours
+    assert "f1_proxy%vspace%get_colours(" in gen
+
+    col_loop_idx = -1
+    cell_loop_idx = -1
+    for idx, line in enumerate(gen.split('\n')):
+        if "do colour=1,ncolour_w1" in line:
+            col_loop_idx = idx
+        if "do cell=1,ncp_colour_w1(colour)" in line:
+            cell_loop_idx = idx
+
+    assert cell_loop_idx - col_loop_idx == 1
+
+    # Check that we're using the colour map when getting the cell dof maps
+    assert "map_w1(:,cmap_w1(colour, cell))" in gen
+
+
+def test_colour_trans_no_deref():
+    ''' test of the colouring transformation of a single loop when we are
+    not generating a de-referencing routine '''
+    _, info = parse(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "test_files", "dynamo0p3",
+                                 "1_single_invoke.f90"),
+                    api=TEST_API)
+    psy = PSyFactory(TEST_API).create(info)
+    invoke = psy.invokes.get('invoke_0_testkern_type')
+    schedule = invoke.schedule
+    ctrans = Dynamo0p3ColourTrans()
+    dtrans = DereferenceTrans()
+
+    # Turn off the dereferencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
     # Colour the loop
     cschedule, _ = ctrans.apply(schedule.children[0])
 
@@ -252,7 +341,53 @@ def test_omp_colour_trans():
     assert omp_idx - col_loop_idx == 1
 
     # Check that the list of private variables is correct
-    assert "private(cell,map_w1,map_w2,map_w3)" in code
+    assert "private(cell)" in code
+
+
+def test_omp_colour_trans_no_deref():
+    ''' Test the OpenMP transformation applied to a coloured loop when we
+    do not have a de-referencing routine '''
+    _, info = parse(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "test_files", "dynamo0p3",
+                                 "1_single_invoke.f90"),
+                    api=TEST_API)
+    psy = PSyFactory(TEST_API).create(info)
+    invoke = psy.invokes.get('invoke_0_testkern_type')
+    schedule = invoke.schedule
+
+    ctrans = Dynamo0p3ColourTrans()
+    otrans = DynamoOMPParallelLoopTrans()
+    dtrans = DereferenceTrans()
+
+    # Turn off the de-referencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
+
+    # Colour the loop
+    cschedule, _ = ctrans.apply(schedule.children[0])
+
+    # Then apply OpenMP to the inner loop
+    schedule, _ = otrans.apply(cschedule.children[0].children[0])
+
+    invoke.schedule = schedule
+    code = str(psy.gen)
+    print code
+
+    col_loop_idx = -1
+    omp_idx = -1
+    cell_loop_idx = -1
+    for idx, line in enumerate(code.split('\n')):
+        if "DO colour=1,ncolour_w1" in line:
+            col_loop_idx = idx
+        if "DO cell=1,ncp_colour_w1(colour)" in line:
+            cell_loop_idx = idx
+        if "!$omp parallel do" in line:
+            omp_idx = idx
+
+    assert cell_loop_idx - omp_idx == 1
+    assert omp_idx - col_loop_idx == 1
+
+    # Check that the list of private variables is correct
+    assert "private(cell)" in code
 
 
 def test_omp_colour_not_orient_trans():
@@ -269,6 +404,7 @@ def test_omp_colour_not_orient_trans():
 
     ctrans = Dynamo0p3ColourTrans()
     otrans = DynamoOMPParallelLoopTrans()
+    dtrans = DereferenceTrans()
 
     # Colour the loop
     cschedule, _ = ctrans.apply(schedule.children[0])
@@ -286,7 +422,14 @@ def test_omp_colour_not_orient_trans():
     assert "orientation_w2(:,cell)" in code
 
     # Check that the list of private variables is correct
-    assert "private(cell,map_w3,map_w2,map_w0,orientation_w2)" in code
+    assert "private(cell)" in code
+
+    # Repeat these checks after switching-off the dereferencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
+    invoke.schedule = schedule
+    code = str(psy.gen)
+    assert "orientation_w2(:,cell)" in code
+    assert "private(cell)" in code
 
 
 def test_omp_colour_orient_trans():
@@ -303,6 +446,7 @@ def test_omp_colour_orient_trans():
 
     ctrans = Dynamo0p3ColourTrans()
     otrans = DynamoOMPParallelLoopTrans()
+    dtrans = DereferenceTrans()
 
     # Colour the loop
     cschedule, _ = ctrans.apply(schedule.children[0])
@@ -320,8 +464,14 @@ def test_omp_colour_orient_trans():
     assert "=> f2_proxy%vspace%get_orientation()" in code
 
     # Check that the list of private variables is correct
-    assert "private(cell,map_w3,map_w2,map_w0,orientation_w3,"\
-        "orientation_w2)" in code
+    assert "private(cell)" in code
+
+    # Repeat these checks after switching-off the dereferencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
+    invoke.schedule = schedule
+    code = str(psy.gen)
+    assert "=> f2_proxy%vspace%get_orientation()" in code
+    assert "private(cell)" in code
 
 
 def test_omp_parallel_colouring_needed():
@@ -454,6 +604,7 @@ def test_colouring_multi_kernel():
 
     ctrans = Dynamo0p3ColourTrans()
     otrans = DynamoOMPParallelLoopTrans()
+    dtrans = DereferenceTrans()
 
     for child in schedule.children:
         newsched, _ = ctrans.apply(child)
@@ -468,7 +619,14 @@ def test_colouring_multi_kernel():
     print gen
     # Check that we're calling the API to get the no. of colours
     assert "a_proxy%vspace%get_colours(" in gen
-    assert "private(cell,map_w2,map_w3,map_w0)" in gen
+    assert "private(cell)" in gen
+
+    # Repeat these checks after switching-off the dereferencing routine
+    schedule, _ = dtrans.apply(newsched, deref=False)
+    invoke.schedule = schedule
+    gen = str(psy.gen)
+    assert "a_proxy%vspace%get_colours(" in gen
+    assert "private(cell)" in gen
 
 
 def test_omp_region_omp_do():
@@ -483,6 +641,7 @@ def test_omp_region_omp_do():
     schedule = invoke.schedule
     olooptrans = Dynamo0p3OMPLoopTrans()
     ptrans = OMPParallelTrans()
+    dtrans = DereferenceTrans()
 
     # Put an OMP PARALLEL around this loop
     child = schedule.children[0]
@@ -494,23 +653,20 @@ def test_omp_region_omp_do():
     # Replace the original loop schedule with the transformed one
     invoke.schedule = schedule
 
-    # Store the results of applying this code transformation as
-    # a string
+    # Store the results of applying this code transformation as a string
     code = str(psy.gen)
+    expected = (
+        "!$omp parallel default(shared), private(cell)\n"
+        "      !$omp do schedule(static)\n"
+        "      DO cell=1,ncells\n" )
+    assert expected in code
 
-    omp_do_idx = -1
-    omp_para_idx = -1
-    cell_loop_idx = -1
-    for idx, line in enumerate(code.split('\n')):
-        if "DO cell=1,ncells" in line:
-            cell_loop_idx = idx
-        if "!$omp do" in line:
-            omp_do_idx = idx
-        if "!$omp parallel default" in line:
-            omp_para_idx = idx
-
-    assert (omp_do_idx - omp_para_idx) == 1
-    assert (cell_loop_idx - omp_do_idx) == 1
+    # Repeat the test with the de-referencing routine switched off
+    schedule, _ = dtrans.apply(schedule, deref=False)
+    invoke.schedule = schedule
+    code = str(psy.gen)
+    print code
+    assert expected in code
 
 
 def test_multi_kernel_single_omp_region():
@@ -527,6 +683,7 @@ def test_multi_kernel_single_omp_region():
 
     otrans = Dynamo0p3OMPLoopTrans()
     rtrans = OMPParallelTrans()
+    dtrans = DereferenceTrans()
 
     # Apply OpenMP to each of the loops
     for child in schedule.children:
@@ -537,29 +694,74 @@ def test_multi_kernel_single_omp_region():
 
     invoke.schedule = newsched
     code = str(psy.gen)
+    print code
+    expected = (
+        "      !$omp parallel default(shared), private(cell)\n"
+        "      !$omp do schedule(static)\n"
+        "      DO cell=1,ncells\n"
+        "        CALL testkern_code(nlayers, f1_proxy, f2_proxy, m1_proxy, "
+        "m2_proxy, ndf_w1, undf_w1, map_w1(:,cell), ndf_w2, undf_w2, "
+        "map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "      END DO \n"
+        "      !$omp end do\n"
+        "      !$omp do schedule(static)\n"
+        "      DO cell=1,ncells\n"
+        "        CALL testkern_code(nlayers, f1_proxy, f2_proxy, m1_proxy, "
+        "m2_proxy, ndf_w1, undf_w1, map_w1(:,cell), ndf_w2, undf_w2, "
+        "map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "      END DO \n"
+        "      !$omp end do\n"
+        "      !$omp end parallel\n" )
+    assert expected in code
 
-    omp_do_idx = -1
-    omp_end_do_idx = -1
-    omp_para_idx = -1
-    omp_end_para_idx = -1
-    cell_loop_idx = -1
-    for idx, line in enumerate(code.split('\n')):
-        if (cell_loop_idx == -1) and\
-           ("DO cell=1,ncells" in line):
-            cell_loop_idx = idx
-        if (omp_do_idx == -1) and ("!$omp do" in line):
-            omp_do_idx = idx
-        if "!$omp end do" in line:
-            omp_end_do_idx = idx
-        if "!$omp parallel default(shared), " +\
-           "private(cell,map_w1,map_w2,map_w3)" in line:
-            omp_para_idx = idx
-        if "!$omp end parallel" in line:
-            omp_end_para_idx = idx
 
-    assert (omp_do_idx - omp_para_idx) == 1
-    assert (cell_loop_idx - omp_do_idx) == 1
-    assert (omp_end_para_idx - omp_end_do_idx) == 1
+def test_multi_kernel_single_omp_region_no_deref():
+    '''Test that we correctly generate all the map-lookups etc.  when an
+    invoke (with no dereferencing routine) contains more than one
+    kernel that are all contained within a single OMP region
+
+    '''
+    _, info = parse(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "test_files", "dynamo0p3",
+                                 "4_multikernel_invokes.f90"),
+                    api=TEST_API)
+    psy = PSyFactory(TEST_API).create(info)
+    invoke = psy.invokes.get('invoke_0')
+    schedule = invoke.schedule
+
+    otrans = Dynamo0p3OMPLoopTrans()
+    rtrans = OMPParallelTrans()
+    dtrans = DereferenceTrans()
+
+    # Apply OpenMP to each of the loops
+    for child in schedule.children:
+        newsched, _ = otrans.apply(child)
+
+    # Enclose all of these OpenMP'd loops within a single region
+    newsched, _ = rtrans.apply(newsched.children)
+
+    schedule, _ = dtrans.apply(newsched, deref=False)
+    invoke.schedule = newsched
+    code = str(psy.gen)
+    print code
+    expected = (
+        "      !$omp parallel default(shared), private(cell)\n"
+        "      !$omp do schedule(static)\n"
+        "      DO cell=1,ncells\n"
+        "        CALL testkern_code(nlayers, f1_proxy%data, f2_proxy%data, "
+        "m1_proxy%data, m2_proxy%data, ndf_w1, undf_w1, map_w1(:,cell), "
+        "ndf_w2, undf_w2, map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "      END DO \n"
+        "      !$omp end do\n"
+        "      !$omp do schedule(static)\n"
+        "      DO cell=1,ncells\n"
+        "        CALL testkern_code(nlayers, f1_proxy%data, f2_proxy%data, "
+        "m1_proxy%data, m2_proxy%data, ndf_w1, undf_w1, map_w1(:,cell), "
+        "ndf_w2, undf_w2, map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "      END DO \n"
+        "      !$omp end do\n"
+        "      !$omp end parallel\n" )
+    assert expected in code
 
 
 def test_loop_fuse_different_spaces():
@@ -624,26 +826,58 @@ def test_loop_fuse():
 
     invoke.schedule = fschedule
     gen = str(psy.gen)
+    print gen
+    expected = (
+        "      DO cell=1,ncells\n"
+        "        CALL testkern_code(nlayers, f1_proxy, f2_proxy, m1_proxy, "
+        "m2_proxy, ndf_w1, undf_w1, map_w1(:,cell), ndf_w2, undf_w2, "
+        "map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "        CALL testkern_code(nlayers, f1_proxy, f2_proxy, m1_proxy, "
+        "m2_proxy, ndf_w1, undf_w1, map_w1(:,cell), ndf_w2, undf_w2, "
+        "map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "      END DO \n" )
+    assert expected in gen
 
-    cell_loop_idx = -1
-    end_loop_idx = -1
-    call_idx1 = -1
-    call_idx2 = -1
-    for idx, line in enumerate(gen.split('\n')):
-        if "DO cell=1,ncells" in line:
-            cell_loop_idx = idx
-        if "CALL testkern_code" in line:
-            if call_idx1 == -1:
-                call_idx1 = idx
-            else:
-                call_idx2 = idx
-        if "END DO" in line:
-            end_loop_idx = idx
 
-    assert cell_loop_idx != -1
-    assert cell_loop_idx < call_idx1
-    assert call_idx1 < call_idx2
-    assert call_idx2 < end_loop_idx
+def test_loop_fuse_no_deref():
+    ''' Test that we are able to fuse two loops together when not using
+    a de-referencing routine '''
+    _, info = parse(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "test_files", "dynamo0p3",
+                                 "4_multikernel_invokes.f90"),
+                    api=TEST_API)
+    psy = PSyFactory(TEST_API).create(info)
+    invoke = psy.invokes.get('invoke_0')
+    schedule = invoke.schedule
+
+    ftrans = DynamoLoopFuseTrans()
+    dtrans = DereferenceTrans()
+
+    # Turn-off the de-referencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
+
+    # Fuse the loops
+    nchildren = len(schedule.children)
+    idx = 1
+    fschedule = schedule
+    while idx < nchildren:
+        fschedule, _ = ftrans.apply(fschedule.children[idx-1],
+                                    fschedule.children[idx])
+        idx += 1
+
+    invoke.schedule = fschedule
+    gen = str(psy.gen)
+    print gen
+    expected = (
+        "      DO cell=1,ncells\n"
+        "        CALL testkern_code(nlayers, f1_proxy%data, f2_proxy%data, "
+        "m1_proxy%data, m2_proxy%data, ndf_w1, undf_w1, map_w1(:,cell), "
+        "ndf_w2, undf_w2, map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "        CALL testkern_code(nlayers, f1_proxy%data, f2_proxy%data, "
+        "m1_proxy%data, m2_proxy%data, ndf_w1, undf_w1, map_w1(:,cell), "
+        "ndf_w2, undf_w2, map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "      END DO \n" )
+    assert expected in gen
 
 
 def test_loop_fuse_omp():
@@ -673,35 +907,70 @@ def test_loop_fuse_omp():
 
     invoke.schedule = fschedule
     code = str(psy.gen)
+    print code
 
     # Check generated code
-    omp_para_idx = -1
-    omp_endpara_idx = -1
-    cell_do_idx = -1
-    cell_enddo_idx = -1
-    call1_idx = -1
-    call2_idx = -1
-    for idx, line in enumerate(code.split('\n')):
-        if "DO cell=1,ncells" in line:
-            cell_do_idx = idx
-        if "!$omp parallel do default(shared), " +\
-           "private(cell,map_w1,map_w2,map_w3), schedule(static)" in line:
-            omp_para_idx = idx
-        if "CALL testkern_code" in line:
-            if call1_idx == -1:
-                call1_idx = idx
-            else:
-                call2_idx = idx
-        if "END DO" in line:
-            cell_enddo_idx = idx
-        if "!$omp end parallel do" in line:
-            omp_endpara_idx = idx
+    expected = (
+        "      !$omp parallel do default(shared), private(cell), "
+        "schedule(static)\n"
+        "      DO cell=1,ncells\n"
+        "        CALL testkern_code(nlayers, f1_proxy, f2_proxy, m1_proxy, "
+        "m2_proxy, ndf_w1, undf_w1, map_w1(:,cell), ndf_w2, undf_w2, "
+        "map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "        CALL testkern_code(nlayers, f1_proxy, f2_proxy, m1_proxy, "
+        "m2_proxy, ndf_w1, undf_w1, map_w1(:,cell), ndf_w2, undf_w2, "
+        "map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "      END DO \n"
+        "      !$omp end parallel do\n" )
+    assert expected in code
 
-    assert cell_do_idx - omp_para_idx == 1
-    assert call1_idx > cell_do_idx
-    assert call2_idx > call1_idx
-    assert cell_enddo_idx > call2_idx
-    assert omp_endpara_idx - cell_enddo_idx == 1
+
+def test_loop_fuse_omp_no_deref():
+    '''Test that we can loop-fuse two loop nests and enclose them in an
+       OpenMP parallel region when we do not have a de-referencing routine '''
+    _, info = parse(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "test_files", "dynamo0p3",
+                                 "4_multikernel_invokes.f90"),
+                    api=TEST_API)
+    psy = PSyFactory(TEST_API).create(info)
+    invoke = psy.invokes.get('invoke_0')
+    schedule = invoke.schedule
+
+    ftrans = DynamoLoopFuseTrans()
+    otrans = DynamoOMPParallelLoopTrans()
+    dtrans = DereferenceTrans()
+
+    # Turn off the creation of a de-referencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
+
+    # Fuse the loops
+    nchildren = len(schedule.children)
+    idx = 1
+    fschedule = schedule
+    while idx < nchildren:
+        fschedule, _ = ftrans.apply(fschedule.children[idx-1],
+                                    fschedule.children[idx])
+        idx += 1
+
+    fschedule, _ = otrans.apply(fschedule.children[0])
+
+    invoke.schedule = fschedule
+    code = str(psy.gen)
+    print code
+    # Check generated code
+    expected = (
+        "      !$omp parallel do default(shared), private(cell), "
+        "schedule(static)\n"
+        "      DO cell=1,ncells\n"
+        "        CALL testkern_code(nlayers, f1_proxy%data, f2_proxy%data, "
+        "m1_proxy%data, m2_proxy%data, ndf_w1, undf_w1, map_w1(:,cell), "
+        "ndf_w2, undf_w2, map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "        CALL testkern_code(nlayers, f1_proxy%data, f2_proxy%data, "
+        "m1_proxy%data, m2_proxy%data, ndf_w1, undf_w1, map_w1(:,cell), "
+        "ndf_w2, undf_w2, map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
+        "      END DO \n"
+        "      !$omp end parallel do\n" )
+    assert expected in code
 
 
 def test_fuse_colour_loops():
@@ -745,54 +1014,98 @@ def test_fuse_colour_loops():
     invoke.schedule = newsched
     code = str(psy.gen)
     print code
-    # Test that the generated code is as expected
-    omp_para_idx = -1
-    omp_do_idx1 = -1
-    omp_do_idx2 = -1
-    cell_loop_idx1 = -1
-    cell_loop_idx2 = -1
-    end_loop_idx1 = -1
-    end_loop_idx2 = -1
-    end_loop_idx3 = -1
-    call_idx1 = -1
-    call_idx2 = -1
-    for idx, line in enumerate(code.split('\n')):
-        if "END DO" in line:
-            if end_loop_idx1 == -1:
-                end_loop_idx1 = idx
-            elif end_loop_idx2 == -1:
-                end_loop_idx2 = idx
-            else:
-                end_loop_idx3 = idx
-        if "DO cell=1,ncp_colour_w2(colour)" in line:
-            if cell_loop_idx1 == -1:
-                cell_loop_idx1 = idx
-            else:
-                cell_loop_idx2 = idx
-        if "DO colour=1,ncolour_w2" in line:
-            col_loop_idx = idx
-        if "CALL ru_code(nlayers," in line:
-            if call_idx1 == -1:
-                call_idx1 = idx
-            else:
-                call_idx2 = idx
-        if "!$omp parallel default(shared), " +\
-           "private(cell,map_w2,map_w3,map_w0)" in line:
-            omp_para_idx = idx
-        if "!$omp do schedule(static)" in line:
-            if omp_do_idx1 == -1:
-                omp_do_idx1 = idx
-            else:
-                omp_do_idx2 = idx
+    expected = (
+        "      DO colour=1,ncolour_w2\n"
+        "        !$omp parallel default(shared), private(cell)\n"
+        "        !$omp do schedule(static)\n"
+        "        DO cell=1,ncp_colour_w2(colour)\n"
+        "          CALL ru_code(nlayers, a_proxy, b_proxy, c_proxy, d_proxy_1, d_proxy_2, d_proxy_3, ndf_w2, undf_w2, map_w2(:,cmap_w2(colour, cell)), basis_w2, diff_basis_w2, ndf_w3, undf_w3, map_w3(:,cell), basis_w3, ndf_w0, undf_w0, map_w0(:,cell), basis_w0, diff_basis_w0, nqp_h, nqp_v, wh, wv)\n"
+        "        END DO \n"
+        "        !$omp end do\n"
+        "        !$omp do schedule(static)\n"
+        "        DO cell=1,ncp_colour_w2(colour)\n"
+        "          CALL ru_code(nlayers, f_proxy, b_proxy, c_proxy, d_proxy_1, d_proxy_2, d_proxy_3, ndf_w2, undf_w2, map_w2(:,cmap_w2(colour, cell)), basis_w2, diff_basis_w2, ndf_w3, undf_w3, map_w3(:,cell), basis_w3, ndf_w0, undf_w0, map_w0(:,cell), basis_w0, diff_basis_w0, nqp_h, nqp_v, wh, wv)\n"
+        "        END DO \n"
+        "        !$omp end do\n"
+        "        !$omp end parallel\n"
+        "      END DO \n" )
+    assert expected in code
 
-    assert (omp_para_idx - col_loop_idx) == 1
-    assert (omp_do_idx1 - omp_para_idx) == 1
-    assert (cell_loop_idx1 - omp_do_idx1) == 1
-    assert (cell_loop_idx2 - omp_do_idx2) == 1
-    assert (end_loop_idx3 - end_loop_idx2) == 3
-    assert call_idx2 > call_idx1
-    assert call_idx1 < end_loop_idx1
-    assert call_idx2 < end_loop_idx2
+
+def test_fuse_colour_loops_no_deref():
+    '''Test that, in the absence of a de-referencing routine, we can fuse
+    colour loops, enclose them in an OpenMP parallel region and
+    preceed each by an OpenMP PARALLEL DO
+
+    '''
+    _, info = parse(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "test_files", "dynamo0p3",
+                                 "4.6_multikernel_invokes.f90"),
+                    api=TEST_API)
+    psy = PSyFactory(TEST_API).create(info)
+    invoke = psy.invokes.get('invoke_0')
+    schedule = invoke.schedule
+
+    ctrans = Dynamo0p3ColourTrans()
+    otrans = Dynamo0p3OMPLoopTrans()
+    rtrans = OMPParallelTrans()
+    ftrans = DynamoLoopFuseTrans()
+    dtrans = DereferenceTrans()
+
+    # Switch-off the production of a de-referencing routine
+    schedule, _ = dtrans.apply(schedule, deref=False)
+
+    # Colour each of the loops
+    for child in schedule.children:
+        newsched, _ = ctrans.apply(child)
+
+    # Fuse the (sequential) loops over colours
+    nchildren = len(newsched.children)
+    idx = 1
+    fschedule = newsched
+    while idx < nchildren:
+        fschedule, _ = ftrans.apply(fschedule.children[idx-1],
+                                    fschedule.children[idx])
+        idx += 1
+
+    # Enclose the colour loops within an OMP parallel region
+    newsched, _ = rtrans.apply(fschedule.children[0].children)
+
+    # Put an OMP DO around each of the colour loops
+    for child in newsched.children[0].children[0].children:
+        newsched, _ = otrans.apply(child)
+
+    # Replace the original schedule with the transformed one and
+    # generate the code
+    invoke.schedule = newsched
+    code = str(psy.gen)
+    print code
+    expected = (
+        "      DO colour=1,ncolour_w2\n"
+        "        !$omp parallel default(shared), private(cell)\n"
+        "        !$omp do schedule(static)\n"
+        "        DO cell=1,ncp_colour_w2(colour)\n"
+        "          CALL ru_code(nlayers, a_proxy%data, b_proxy%data, "
+        "c_proxy%data, d_proxy(1)%data, d_proxy(2)%data, d_proxy(3)%data, "
+        "ndf_w2, undf_w2, map_w2(:,cmap_w2(colour, cell)), basis_w2, "
+        "diff_basis_w2, ndf_w3, undf_w3, map_w3(:,cell), basis_w3, ndf_w0, "
+        "undf_w0, map_w0(:,cell), basis_w0, diff_basis_w0, nqp_h, nqp_v, "
+        "wh, wv)\n"
+        "        END DO \n"
+        "        !$omp end do\n"
+        "        !$omp do schedule(static)\n"
+        "        DO cell=1,ncp_colour_w2(colour)\n"
+        "          CALL ru_code(nlayers, f_proxy%data, b_proxy%data, "
+        "c_proxy%data, d_proxy(1)%data, d_proxy(2)%data, d_proxy(3)%data, "
+        "ndf_w2, undf_w2, map_w2(:,cmap_w2(colour, cell)), basis_w2, "
+        "diff_basis_w2, ndf_w3, undf_w3, map_w3(:,cell), basis_w3, ndf_w0, "
+        "undf_w0, map_w0(:,cell), basis_w0, diff_basis_w0, nqp_h, nqp_v, "
+        "wh, wv)\n"
+        "        END DO \n"
+        "        !$omp end do\n"
+        "        !$omp end parallel\n"
+        "      END DO \n" )
+    assert expected in code
 
 
 def test_module_inline():
@@ -808,6 +1121,32 @@ def test_module_inline():
     schedule = invoke.schedule
     kern_call = schedule.children[0].children[0]
     inline_trans = KernelModuleInlineTrans()
+
+    schedule, _ = inline_trans.apply(kern_call)
+    gen = str(psy.gen)
+    # check that the subroutine has been inlined
+    assert 'SUBROUTINE ru_code()' in gen
+    # check that the associated psy "use" does not exist
+    assert 'USE ru_kernel_mod, only : ru_code' not in gen
+
+
+def test_module_inline_no_deref():
+    '''Tests that correct results are obtained when a kernel is inlined
+    into the psy-layer in the dynamo0.3 API. More in-depth tests can be
+    found in the gocean1p0_transformations.py file'''
+    _, info = parse(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "test_files", "dynamo0p3",
+                                 "4.6_multikernel_invokes.f90"),
+                    api=TEST_API)
+    psy = PSyFactory(TEST_API).create(info)
+    invoke = psy.invokes.get('invoke_0')
+    schedule = invoke.schedule
+
+    inline_trans = KernelModuleInlineTrans()
+    dtrans = DereferenceTrans()
+
+    schedule, _ = dtrans.apply(schedule, deref=False)
+    kern_call = schedule.children[0].children[0]
     schedule, _ = inline_trans.apply(kern_call)
     gen = str(psy.gen)
     # check that the subroutine has been inlined
