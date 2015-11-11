@@ -189,14 +189,26 @@ def test_invalid_vector_value_range():
 # not required here as it causes a parse error in the generic code.
 
 def test_fs_repr():
-    ''' Test that the __repr__ method of DynFuncDescriptor03 returns
-    something usefule '''
+    '''Test that the __repr__ and __str__ methods of DynFuncDescriptor03
+    return something useful
+
+    '''
     from dynamo0p3 import DynKernMetadata
     ast = fpapi.parse(CODE, ignore_comments=False)
     name = "testkern_qr_type"
     metadata = DynKernMetadata(ast, name=name)
-    assert repr(metadata._func_descriptors[0]) == \
-        "DynFuncDescriptor03(func_type(w1, gh_basis))"
+    fsdesc = metadata._func_descriptors[0]
+    assert repr(fsdesc) == "DynFuncDescriptor03(func_type(w1, gh_basis))"
+
+    expected = (
+        "DynFuncDescriptor03 object\n"
+        "  name='func_type'\n"
+        "  nargs=2\n"
+        "  function_space_name[0] = 'w1'\n"
+        "  operator_name[1] = 'gh_basis'\n" 
+    )
+    fsdesc_str = str(fsdesc)
+    assert expected in fsdesc_str
 
 
 def test_fs_descriptor_wrong_type():
