@@ -96,8 +96,8 @@ def test_deref_toggle_off():
     gen = str(psy.gen)
     print gen
     expected = ( "! Look-up loop bounds\n"
-                 "      istop = cv_fld%grid%simulation_domain%xstop\n"
-                 "      jstop = cv_fld%grid%simulation_domain%ystop\n"
+                 "      istop = p_fld%grid%simulation_domain%xstop\n"
+                 "      jstop = p_fld%grid%simulation_domain%ystop\n"
                  "      !\n"
                  "      DO j=2,jstop-1\n"
                  "        DO i=2,istop\n"

@@ -318,92 +318,14 @@ class GOInvoke(Invoke):
         return None
 
     def gen_code(self, parent):
-        '''Wrapper for the two different gen_code_... methods.
-        gen_code_2layer generates a PSy layer containing a
-        de-referencing subroutine while gen_code_1layer generates a
-        singlue subroutine that both de-references AND calls the
-        kernels
-
-        '''
-        #if self._schedule.deref_routine:
-        self.gen_code_2layer(parent)
-        #else:
-        #    self.gen_code_1layer(parent)
-
-
-    def gen_code_1layer(self, parent):
-        ''' Generates GOcean specific invocation code (the subroutine called
-            by the associated invoke call in the algorithm layer). This
-            consists of the PSy invocation subroutine and the declaration of
-            its arguments.'''
-
-        from f2pygen import SubroutineGen, DeclGen, TypeDeclGen, CallGen,\
-            CommentGen, AssignGen
-        # create the subroutine
-        invoke_sub = SubroutineGen(parent, name=self.name,
-                                   args=self.psy_unique_var_names)
-        parent.add(invoke_sub)
-
-        # add declarations for the variables holding the upper bounds
-        # of loops in i and j
-        if self.schedule.const_loop_bounds:
-            invoke_sub.add(DeclGen(invoke_sub, datatype="INTEGER",
-                                   entity_decls=[self.schedule.iloop_stop,
-                                                 self.schedule.jloop_stop]))
-
-        # Generate the code body of this subroutine
-        self.schedule.gen_code(invoke_sub)
-
-        # add the subroutine argument declarations for fields
-        if len(self.unique_args_arrays) > 0:
-            my_decl_flds = TypeDeclGen(invoke_sub, datatype="r2d_field",
-                                         intent="inout",
-                                         entity_decls=self.unique_args_arrays)
-            invoke_sub.add(my_decl_flds)
-
-        # add the subroutine argument declarations for real scalars
-        if len(self.unique_args_rscalars) > 0:
-            my_decl_rscalars = DeclGen(invoke_sub, datatype="REAL",
-                                       intent="inout", kind="wp",
-                                       entity_decls=self.unique_args_rscalars)
-            invoke_sub.add(my_decl_rscalars)
-        # add the subroutine argument declarations for integer scalars
-        if len(self.unique_args_iscalars) > 0:
-            my_decl_iscalars = DeclGen(invoke_sub, datatype="INTEGER",
-                                       intent="inout",
-                                       entity_decls=self.unique_args_iscalars)
-            invoke_sub.add(my_decl_iscalars)
-
-        if self._schedule.const_loop_bounds and \
-           len(self.unique_args_arrays) > 0:
-
-            # Look-up the loop bounds using the first field object in the
-            # list
-            sim_domain = self.unique_args_arrays[0] +\
-                         "%grid%simulation_domain%"
-            position = invoke_sub.last_declaration()
-
-            invoke_sub.add(CommentGen(invoke_sub, ""),
-                           position=["after", position])
-            invoke_sub.add(AssignGen(invoke_sub, lhs=self.schedule.jloop_stop,
-                                     rhs=sim_domain+"ystop"),
-                           position=["after", position])
-            invoke_sub.add(AssignGen(invoke_sub, lhs=self.schedule.iloop_stop,
-                                     rhs=sim_domain+"xstop"),
-                           position=["after", position])
-            invoke_sub.add(CommentGen(invoke_sub, " Look-up loop bounds"),
-                           position=["after", position])
-            invoke_sub.add(CommentGen(invoke_sub, ""),
-                           position=["after", position])
-
-    def gen_code_2layer(self, parent):
         '''Generates GOcean specific invocation code (the subroutine called
-            by the associated invoke call in the algorithm
-            layer). This consists of the PSy invocation subroutine and
-            the declaration of its arguments. Once all derived types
-            have been de-referenced to get at native arrays, these
-            arrays are passed to a second subroutine which contains
-            all loops and the Kernel calls
+           by the associated invoke call in the algorithm
+           layer). This consists of the PSy invocation subroutine and
+           the declaration of its arguments. If we are generating a
+           de-referencing routine then, once all derived types
+           have been de-referenced to get at native arrays, these
+           arrays are passed to a second subroutine which contains
+           all loops and the Kernel calls
 
         '''
         from f2pygen import SubroutineGen, DeclGen, TypeDeclGen, CallGen,\
