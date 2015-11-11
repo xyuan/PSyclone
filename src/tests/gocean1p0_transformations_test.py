@@ -255,8 +255,11 @@ def test_loop_fuse_unexpected_error():
 
 
 def test_omp_parallel_loop():
-    '''Test that we can generate an OMP PARALLEL DO correctly,
-    independent of whether or not we are generating constant loop bounds '''
+    '''Test that we can generate an OMP PARALLEL DO correctly, independent
+    of whether or not we are generating constant loop bounds and have
+    a de-referencing routine
+
+    '''
     psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
     schedule = invoke.schedule
 
@@ -281,6 +284,39 @@ def test_omp_parallel_loop():
     newsched0, _ = dtrans.apply(omp_sched, deref=False)
     newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
     invoke.schedule = newsched
+    gen = str(psy.gen)
+    gen = gen.lower()
+    print gen
+    expected = (
+        "      !$omp parallel do default(shared), private(j,i), "
+        "schedule(static)\n"
+        "      do j=cu_fld%internal%ystart,cu_fld%internal%ystop\n"
+        "        do i=cu_fld%internal%xstart,cu_fld%internal%xstop\n"
+        "          call compute_cu_code(i, j, cu_fld%data, p_fld%data, "
+        "u_fld%data)\n"
+        "        end do \n"
+        "      end do \n"
+        "      !$omp end parallel do")
+    assert expected in gen
+
+
+def test_omp_parallel_loop_without_deref():
+    '''Test that we can generate an OMP PARALLEL DO correctly, *after*
+    we've switched off the de-referencing routine
+
+    '''
+    psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
+    schedule = invoke.schedule
+
+    omp = GOceanOMPParallelLoopTrans()
+    cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
+
+    newsched0, _ = dtrans.apply(schedule, deref=False)
+    newsched1, _ = cbtrans.apply(newsched0, const_bounds=False)
+    omp_sched, _ = omp.apply(newsched1.children[0])
+
+    invoke.schedule = omp_sched
     gen = str(psy.gen)
     gen = gen.lower()
     print gen
@@ -1181,7 +1217,7 @@ def test_module_noinline_default():
 
 def test_module_inline():
     ''' Test that we can succesfully inline a basic kernel subroutine
-    routine into the PSy layer module by directly setting inline to
+     into the PSy layer module by directly setting inline to
     true for the specified kernel. '''
     psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
     schedule = invoke.schedule
@@ -1298,3 +1334,23 @@ def test_module_inline_warning_no_change():
     kern_call = schedule.children[0].children[0].children[0]
     inline_trans = KernelModuleInlineTrans()
     _, _ = inline_trans.apply(kern_call, inline=False)
+
+
+def test_module_inline_no_deref():
+    ''' Test that we can succesfully inline a basic kernel subroutine
+    routine into the PSy layer module using a transformation if no
+    de-ref. routine is being generated '''
+    psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
+    schedule = invoke.schedule
+    inline_trans = KernelModuleInlineTrans()
+    cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
+    newsched0, _ = dtrans.apply(schedule, deref=False)
+    newsched1, _ = cbtrans.apply(newsched0, const_bounds=False)
+    kern_call = newsched1.children[1].children[0].children[0]
+    schedule, _ = inline_trans.apply(kern_call)
+    gen = str(psy.gen)
+    # check that the subroutine has been inlined
+    assert 'SUBROUTINE compute_cv_code(i, j, cv, p, v)' in gen
+    # check that the associated use no longer exists
+    assert 'USE compute_cv_mod, ONLY: compute_cv_code' not in gen
