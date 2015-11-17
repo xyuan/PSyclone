@@ -1383,10 +1383,6 @@ class DynSchedule(Schedule):
 
     @deref_routine.setter
     def deref_routine(self, obj):
-        if obj and not self._const_loop_bounds:
-            raise GenerationError(
-                "Cannot generate a de-referencing routine in the PSy layer"
-                " if constant loop bounds are not being used\n")
         self._deref_routine = obj
 
 
