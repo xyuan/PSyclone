@@ -730,7 +730,7 @@ class DynInvoke(Invoke):
             # Create the subroutine that contains the 2nd level of the
             # PSy layer. This routine contains no references to
             # Fortran derived types. Since we don't yet know the list
-            # of arguments to this routine we defer setting them by 
+            # of arguments to this routine we defer setting them by
             # passing in None.
             invoke_sub_arrays = SubroutineGen(parent,
                                               name=self.name+"_arrays",
@@ -785,7 +785,8 @@ class DynInvoke(Invoke):
                     lhs_name = arg.proxy_name + "("+str(idx)+")"
                     invoke_sub.add(AssignGen(invoke_sub,
                                    lhs=lhs_name,
-                                   rhs=arg.name + "("+str(idx)+")%get_proxy()"))
+                                   rhs=arg.name +
+                                             "("+str(idx)+")%get_proxy()"))
                     if invoke_sub_arrays:
                         psy2_caller_args.append(lhs_name+"%data")
                         psy2_args.append(arg.proxy_name + "_"+str(idx))
@@ -841,7 +842,8 @@ class DynInvoke(Invoke):
                                                   intent="in",
                                                   entity_decls=[ncell3d_name]))
                 # Get the operator proxy
-                invoke_sub.add(AssignGen(invoke_sub, lhs=op_list[op].proxy_name,
+                invoke_sub.add(AssignGen(invoke_sub,
+                                         lhs=op_list[op].proxy_name,
                                          rhs=op_list[op].name+"%get_proxy()"))
                 stencil_name = op + "_local_stencil"
                 invoke_sub.add(AssignGen(invoke_sub, lhs=stencil_name,
@@ -857,14 +859,13 @@ class DynInvoke(Invoke):
                     invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
                                                   datatype="real",
                                                   kind="r_def", intent="inout",
-                                                  dimension=2*(name+",")+
+                                                  dimension=2*(name+",") +
                                                   ncell3d_name,
                                                   entity_decls=[stencil_name]))
                 invoke_sub.add(DeclGen(invoke_sub, datatype="real",
                                        kind="r_def", pointer=True,
-                                       entity_decls=[stencil_name+
+                                       entity_decls=[stencil_name +
                                                      "(:,:,:) => null()"]))
-
 
         # Initialise the number of layers and cells now that we've looked-up
         # our proxies
@@ -889,7 +890,7 @@ class DynInvoke(Invoke):
 
         # Create declarations for them both in PSy1 and PSy2.
         invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
-                               entity_decls = [ncells_name, nlayers_name]))
+                               entity_decls=[ncells_name, nlayers_name]))
         if invoke_sub_arrays:
             invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
                                           datatype="integer",
@@ -903,7 +904,6 @@ class DynInvoke(Invoke):
         invoke_sub.add(AssignGen(invoke_sub, lhs=ncells_name,
                                  rhs=first_var.proxy_name_indexed + "%" +
                                  first_var.ref_name + "%get_ncell()"))
-
 
         if self.qr_required:
             # declare and initialise qr values
@@ -975,7 +975,7 @@ class DynInvoke(Invoke):
                 psy2_caller_args.append(ndf_name)
                 psy2_dummy_args.append(ndf_name)
             invoke_sub.add(AssignGen(invoke_sub, lhs=ndf_name,
-                                     rhs=name_on_space+"%"+\
+                                     rhs=name_on_space+"%" +
                                      arg_on_space.ref_name+"%get_ndf()"))
 
             # if there is a field on this space then initialise undf
@@ -991,21 +991,21 @@ class DynInvoke(Invoke):
                     psy2_dummy_args.append(undf_name)
                 invoke_sub.add(AssignGen(invoke_sub,
                                          lhs=undf_name,
-                                         rhs=name_on_space+"%"+\
-                                         arg_on_space.ref_name+\
+                                         rhs=name_on_space + "%" +
+                                         arg_on_space.ref_name +
                                          "%get_undf()"))
                 # A map is required as there is a field on this space
                 # TODO get_dofmap() does not currently exist in the Dynamo
                 dmap_name = self.dofmap_name(function_space)
                 invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
                                        pointer=True,
-                                       entity_decls=[dmap_name+\
+                                       entity_decls=[dmap_name +
                                                      "(:,:) => null()"]))
 
                 invoke_sub.add(AssignGen(invoke_sub, lhs=dmap_name,
                                          pointer=True,
-                                         rhs=name_on_space+"%"+\
-                                         arg_on_space.ref_name+\
+                                         rhs=name_on_space + "%" +
+                                         arg_on_space.ref_name +
                                          "%get_dofmap()"))
                 if invoke_sub_arrays:
                     # The second dimension of the dofmap is indexed from zero
@@ -1015,7 +1015,7 @@ class DynInvoke(Invoke):
                     # just the lower bounds) of the dummy argument.
                     invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
                                                   datatype="integer",
-                                                  dimension=ndf_name + \
+                                                  dimension=ndf_name +
                                                   ",0:" + ncells_name,
                                                   intent="in",
                                                   entity_decls=[dmap_name]))
@@ -1031,32 +1031,35 @@ class DynInvoke(Invoke):
                     psy2_caller_args.append(lhs)
                     psy2_dummy_args.append(lhs)
 
-                rhs = name_on_space+"%"+arg_on_space.ref_name+"%get_dim_space()"
+                rhs = \
+                    name_on_space + "%" + arg_on_space.ref_name + \
+                    "%get_dim_space()"
                 invoke_sub.add(AssignGen(invoke_sub, lhs=lhs, rhs=rhs))
                 # allocate the basis function variable
                 alloc_args = "dim_" + function_space + ", " + \
                              self.ndf_name(function_space) + ", nqp_h, nqp_v"
                 op_name = self.get_operator_name("gh_basis", function_space)
                 invoke_sub.add(AllocateGen(invoke_sub,
-                                           op_name+"("+alloc_args+")"))
+                                           op_name + "(" + alloc_args + ")"))
                 # add basis function variable to list to declare later
-                psy1_operator_declarations.append(op_name+"(:,:,:,:)")
+                psy1_operator_declarations.append(op_name + "(:,:,:,:)")
                 if invoke_sub_arrays:
-                    psy2_operator_declarations.append(op_name+"("+alloc_args+
-                                                      ")")
+                    psy2_operator_declarations.append(op_name + "(" +
+                                                      alloc_args + ")")
                     psy2_caller_args.append(op_name)
                     psy2_dummy_args.append(op_name)
 
             if self.diff_basis_required(function_space):
                 # initialise 'diff_dim' variable for this function
                 # space and add name to list to declare later
-                lhs = "diff_dim_"+function_space
+                lhs = "diff_dim_" + function_space
                 var_dim_list.append(lhs)
                 if invoke_sub_arrays:
                     psy2_caller_args.append(lhs)
                     psy2_dummy_args.append(lhs)
-                rhs = name_on_space+"%"+arg_on_space.ref_name+\
-                      "%get_dim_space_diff()"
+                rhs = \
+                    name_on_space + "%" + arg_on_space.ref_name + \
+                    "%get_dim_space_diff()"
                 invoke_sub.add(AssignGen(invoke_sub, lhs=lhs, rhs=rhs))
                 # allocate the diff basis function variable
                 alloc_args = "diff_dim_" + function_space + ", " + \
@@ -1066,10 +1069,10 @@ class DynInvoke(Invoke):
                 invoke_sub.add(AllocateGen(invoke_sub,
                                            op_name+"("+alloc_args+")"))
                 # add diff basis function variable to list to declare later
-                psy1_operator_declarations.append(op_name+"(:,:,:,:)")
+                psy1_operator_declarations.append(op_name + "(:,:,:,:)")
                 if invoke_sub_arrays:
-                    psy2_operator_declarations.append(op_name+"("+alloc_args+
-                                                      ")")
+                    psy2_operator_declarations.append(op_name + "(" +
+                                                      alloc_args + ")")
                     # Add the arrays containing the diff basis to the arg list
                     # for PSy2
                     psy2_caller_args.append(op_name)
@@ -1083,8 +1086,8 @@ class DynInvoke(Invoke):
                 invoke_sub.add(DeclGen(invoke_sub,
                                        datatype="integer",
                                        pointer=True,
-                                       entity_decls=[fs_descriptor.\
-                                                     orientation_name+\
+                                       entity_decls=[fs_descriptor.
+                                                     orientation_name +
                                                      "(:,:) => null()"]))
                 invoke_sub.add(AssignGen(invoke_sub, pointer=True,
                                          lhs=fs_descriptor.orientation_name,
@@ -1092,15 +1095,14 @@ class DynInvoke(Invoke):
                                          arg_on_space.ref_name +
                                          "%get_orientation()"))
                 if invoke_sub_arrays:
-                    invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
-                                                  datatype="integer",
-                                                  intent="in",
-                                                  dimension=self.\
-                                                  ndf_name(function_space)+
-                                                  ",ncells",
-                                                  entity_decls=\
-                                                  [fs_descriptor.\
-                                                   orientation_name]))
+                    invoke_sub_arrays.add(
+                        DeclGen(invoke_sub_arrays,
+                                datatype="integer",
+                                intent="in",
+                                dimension=self.
+                                ndf_name(function_space) + ",ncells",
+                                entity_decls=[fs_descriptor.
+                                              orientation_name]))
                     psy2_caller_args.append(fs_descriptor.orientation_name)
                     psy2_dummy_args.append(fs_descriptor.orientation_name)
 
@@ -1131,12 +1133,12 @@ class DynInvoke(Invoke):
                                    kind="r_def",
                                    entity_decls=psy1_operator_declarations))
             if invoke_sub_arrays:
-                invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
-                                              datatype="real",
-                                              kind="r_def",
-                                              intent="in",
-                                              entity_decls=\
-                                              psy2_operator_declarations))
+                invoke_sub_arrays.add(
+                    DeclGen(invoke_sub_arrays,
+                            datatype="real",
+                            kind="r_def",
+                            intent="in",
+                            entity_decls=psy2_operator_declarations))
 
         # We must pass in the colour maps for each function space that
         # has been coloured
@@ -1151,11 +1153,11 @@ class DynInvoke(Invoke):
                     suffix = "_" + loop.field_space
                     # Add declarations of the colour map and array holding the
                     # no. of cells of each colour for each space
-                    invoke_sub.add(DeclGen(parent, datatype="integer",
-                                           pointer=True,
-                                           entity_decls=["cmap"+suffix+"(:,:)",
-                                                         "ncp_colour"+suffix+\
-                                                         "(:)"]))
+                    invoke_sub.add(
+                        DeclGen(parent, datatype="integer",
+                                pointer=True,
+                                entity_decls=["cmap" + suffix + "(:,:)",
+                                              "ncp_colour" + suffix + "(:)"]))
                     # Declaration of variable to hold the number of colours
                     invoke_sub.add(DeclGen(parent, datatype="integer",
                                            entity_decls=["ncolour"+suffix]))
@@ -1163,10 +1165,12 @@ class DynInvoke(Invoke):
                     # Add the look-up of the colour map for this kernel
                     # call
                     invoke_sub.add(CommentGen(invoke_sub, ""))
-                    invoke_sub.add(CommentGen(invoke_sub, " Look-up colour maps"))
+                    invoke_sub.add(CommentGen(invoke_sub,
+                                              " Look-up colour maps"))
                     invoke_sub.add(CommentGen(invoke_sub, ""))
-                    name = arg_on_space.proxy_name_indexed + \
-                           "%" + arg_on_space.ref_name + "%get_colours"
+                    name = \
+                        arg_on_space.proxy_name_indexed +\
+                        "%" + arg_on_space.ref_name + "%get_colours"
                     colour_vars = ["ncolour"+suffix,
                                    "ncp_colour"+suffix,
                                    "cmap"+suffix]
@@ -1179,19 +1183,19 @@ class DynInvoke(Invoke):
                     if invoke_sub_arrays:
                         psy2_caller_args.extend(colour_vars)
                         psy2_dummy_args.extend(colour_vars)
-                        invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
-                                                      datatype="integer",
-                                                      intent="in",
-                                                      entity_decls=["ncolour"+
-                                                                    suffix]))
                         invoke_sub_arrays.add(
                             DeclGen(invoke_sub_arrays,
                                     datatype="integer",
                                     intent="in",
-                                    entity_decls=\
-                                    ["cmap"+suffix+"(:,:)",
-                                     "ncp_colour"+suffix+
-                                     "(ncolour"+suffix+")"]))
+                                    entity_decls=["ncolour" + suffix]))
+                        invoke_sub_arrays.add(
+                            DeclGen(invoke_sub_arrays,
+                                    datatype="integer",
+                                    intent="in",
+                                    entity_decls=[
+                                        "cmap"+suffix+"(:,:)",
+                                        "ncp_colour" + suffix +
+                                        "(ncolour" + suffix + ")"]))
 
         if self.qr_required:
             # add calls to compute the values of any basis arrays
@@ -1250,7 +1254,7 @@ class DynInvoke(Invoke):
             map_name = bc_kern.fs_descriptors.map_name(kern_func_space_name)
             w2_proxy_name = reference_arg.proxy_name
 
-            # Variable to hold the name of the function space. We supply 
+            # Variable to hold the name of the function space. We supply
             # a context and a label so that we can look-up this name
             # in the DynKern::gen_code() method
             fs_name = self._name_space_manager.create_name(root_name="fs",
@@ -1271,12 +1275,13 @@ class DynInvoke(Invoke):
 
             # Again, we supply a context and a label so that we can
             # look-up this name in the DynKern::gen_code() method.
-            boundary_dofs_name = self._name_space_manager.create_name(
-                root_name="boundary_dofs_"+space_name,
-                context="psy2",
-                label="bc_dofs_name")
+            boundary_dofs_name = \
+                self._name_space_manager.create_name(
+                            root_name="boundary_dofs_"+space_name,
+                            context="psy2",
+                            label="bc_dofs_name")
             invoke_sub.add(UseGen(invoke_sub, name="function_space_mod",
-                                only=True, funcnames=[space_name]))
+                                  only=True, funcnames=[space_name]))
             invoke_sub.add(DeclGen(invoke_sub, datatype="integer",
                                    pointer=True,
                                    entity_decls=[boundary_dofs_name +
@@ -1559,7 +1564,7 @@ class DynKern(Kern):
         ''' Dynamically look-up whether or not we are generating a
         de-referencing routine for the Schedule that calls this kernel '''
         # Store a reference to our Schedule. This enables us to look-up
-        # whether we're generating a de-referencing routine at 
+        # whether we're generating a de-referencing routine at
         # code-generation time.
         if not self._schedule:
             self._schedule = self.ancestor(DynSchedule)
@@ -1601,7 +1606,7 @@ class DynKern(Kern):
             darg = "cmap_" + fspace + "(colour, cell)"
         else:
             darg = "cell"
-        darg =  "(:," + darg + ")"
+        darg = "(:," + darg + ")"
         return darg
 
     def local_vars(self):
@@ -1613,14 +1618,14 @@ class DynKern(Kern):
         # cell-by-cell approach) these maps are shared between
         # threads. Therefore we do not need to add them to the list
         # of variables that must be declared as private.
- 
+
         # Dof maps for fields
-        #for unique_fs in self.arguments.unique_fss:
+        # for unique_fs in self.arguments.unique_fss:
         #    if self.field_on_space(unique_fs):
         #        # A map is required as there is a field on this space
         #        lvars.append(self._fs_descriptors.map_name(unique_fs))
         # Orientation maps
-        #for unique_fs in self.arguments.unique_fss:
+        # for unique_fs in self.arguments.unique_fss:
         #    if self._fs_descriptors.exists(unique_fs):
         #        fs_descriptor = self._fs_descriptors.get_descriptor(unique_fs)
         #        if fs_descriptor.orientation:
@@ -1646,10 +1651,10 @@ class DynKern(Kern):
             # add in any required USE associations
             parent.add(UseGen(parent, name="constants_mod", only="True",
                               funcnames=["r_def"]))
-        # We'll only need this 'name separator' if we're generating a 
+        # We'll only need this 'name separator' if we're generating a
         # call rather than the routine itself. In the former case
         # we are typically (always?) called from the stub generator in
-        # which case we don't have to worry about how the kernel is 
+        # which case we don't have to worry about how the kernel is
         # being called (i.e. where or not we have a de-referencing routine)
         name_sep = ""
         if my_type != "subroutine" and self._deref_routine:
@@ -1749,9 +1754,9 @@ class DynKern(Kern):
                                        "," + size,
                                        intent=intent, entity_decls=[text]))
                 else:
-                    arglist.append(arg.proxy_name_indexed+name_sep+
+                    arglist.append(arg.proxy_name_indexed+name_sep +
                                    "ncell_3d")
-                    arglist.append(arg.proxy_name_indexed+name_sep+
+                    arglist.append(arg.proxy_name_indexed+name_sep +
                                    "local_stencil")
             else:
                 raise GenerationError(
@@ -1859,7 +1864,7 @@ class DynKern(Kern):
                                            entity_decls=[orientation_name]))
                         arglist.append(orientation_name)
                     else:
-                        arglist.append(orientation_name + 
+                        arglist.append(orientation_name +
                                        self.dofmap_index(unique_fs))
             # 3.3 Fix for boundary_dofs array to the boundary
             # condition kernel (enforce_bc_kernel) arguments
@@ -1868,15 +1873,18 @@ class DynKern(Kern):
                 arglist.append("boundary_dofs_w2")
                 if my_type == "subroutine":
                     ndf_name = self._fs_descriptors.ndf_name("any_space_1")
-                    parent.add(DeclGen(parent, datatype="integer", intent="in",
-                                       dimension=ndf_name+",2",
-                                       entity_decls=["boundary_dofs_w2"]))
+                    parent.add(
+                        DeclGen(parent, datatype="integer", intent="in",
+                                dimension=ndf_name+",2",
+                                entity_decls=["boundary_dofs_w2"]))
                 if my_type == "call" and not self._deref_routine:
-                    parent.add(DeclGen(parent, datatype="integer",
-                                       pointer=True, entity_decls=[
-                                           "boundary_dofs_w2(:,:) => null()"]))
-                    proxy_name = self._arguments.get_field("any_space_1").\
-                                 proxy_name
+                    parent.add(
+                        DeclGen(parent, datatype="integer",
+                                pointer=True,
+                                entity_decls=[
+                                    "boundary_dofs_w2(:,:) => null()"]))
+                    proxy_name = \
+                        self._arguments.get_field("any_space_1").proxy_name
                     new_parent, position = parent.start_parent_loop()
                     new_parent.add(AssignGen(new_parent, pointer=True,
                                              lhs="boundary_dofs_w2",
@@ -2035,8 +2043,9 @@ class DynKern(Kern):
             kern_func_space_name = enforce_bc_arg.function_space
             ndf_name = self.fs_descriptors.ndf_name(kern_func_space_name)
             undf_name = self.fs_descriptors.undf_name(kern_func_space_name)
-            map_name = self.fs_descriptors.map_name(kern_func_space_name) + \
-                       self.dofmap_index(kern_func_space_name)
+            map_name = \
+                self.fs_descriptors.map_name(kern_func_space_name) + \
+                self.dofmap_index(kern_func_space_name)
 
             parent.add(UseGen(parent, name="function_space_mod",
                               only=True, funcnames=[space_name]))
