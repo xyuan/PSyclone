@@ -301,6 +301,21 @@ def test_dyninvoke_unique_args():
         invoke.unique_args('gh_broken')
 
 
+def test_create_args():
+    ''' Tests that a kernel argument of the wrong type is caught by
+    the DynKern._create_arg_list method. '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "1_single_invoke.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    kernels = schedule.walk(schedule._children, DynKern)
+    # Break the type of the first kernel argument
+    kernels[0]._arguments.args[0]._type = "gh_broken"
+    with pytest.raises(GenerationError):
+        kernels[0]._create_arg_list(schedule)
+
+
 def test_field():
     ''' Tests that a call with a set of fields and no basis
     functions produces correct code. '''
