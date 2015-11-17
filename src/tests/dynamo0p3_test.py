@@ -316,6 +316,22 @@ def test_create_args():
         kernels[0]._create_arg_list(schedule)
 
 
+def test_DynKernelArgument_wrong_intent():
+    ''' Tests that a kernel argument of the wrong type is caught by
+    the DynKern._create_arg_list method. '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "1_single_invoke.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    kernels = schedule.walk(schedule._children, DynKern)
+    my_arg = kernels[0]._arguments.args[0]
+    # Break the access of the first kernel argument
+    my_arg._access = "gh_broken"
+    with pytest.raises(GenerationError):
+        _ = my_arg.intent()
+
+
 def test_field():
     ''' Tests that a call with a set of fields and no basis
     functions produces correct code. '''
