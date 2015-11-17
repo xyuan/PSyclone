@@ -289,6 +289,18 @@ def test_fsdesc_fs_not_in_argdesc():
         _ = DynKernMetadata(ast, name=name)
 
 
+def test_dyninvoke_unique_args():
+    '''Test that an appropriate error is raised if the
+    DynInvoke.unique_args is called with an invalid data type'''
+    _, invoke_info = parse(os.path.join(BASE_PATH,
+                                        "4.3_multikernel_invokes.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.get('invoke_0')
+    with pytest.raises(GenerationError):
+        invoke.unique_args('gh_broken')
+
+
 def test_field():
     ''' Tests that a call with a set of fields and no basis
     functions produces correct code. '''
