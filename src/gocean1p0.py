@@ -377,9 +377,7 @@ class GOInvoke(Invoke):
                                        entity_decls=self.unique_args_iscalars)
             invoke_sub.add(my_decl_iscalars)
 
-        if self._schedule.const_loop_bounds:
-# and \
-#           len(self.unique_args_arrays) > 0:
+        if self._schedule.const_loop_bounds and self.unique_args_arrays:
 
             # Work out which field object is best for looking-up
             # field extents and any properties of the grid
@@ -1060,9 +1058,9 @@ class GOKernelGridArgument(object):
                                   "Expected one of {0} but found '{1}'".\
                                   format(str(GRID_PROPERTY_DICT.keys()),
                                          arg.grid_prop))
-
+        self._arg = arg
         # This object always represents an argument that is a grid_property
-        self._type = "grid_property"
+        self._arg._type = "grid_property"
 
     @property
     def name(self):
@@ -1075,7 +1073,7 @@ class GOKernelGridArgument(object):
         ''' The type of this argument. We have this for compatibility with
             GOKernelArgument objects since, for this class, it will always be
             "grid_property". '''
-        return self._type
+        return self._arg._type
 
     @property
     def rank(self):
