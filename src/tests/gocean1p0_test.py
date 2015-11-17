@@ -18,6 +18,19 @@ from generator import GenerationError, ParseError
 API = "gocean1.0"
 
 
+def test_grid_property_object():
+    ''' Tests the methods of the GridProperty class '''
+    from gocean1p0 import GridProperty
+    prop = GridProperty(name="fake_name",
+                        rank=0,
+                        type="REAL",
+                        kind="wp")
+    assert prop.name == "fake_name"
+    assert prop.rank == 0
+    assert prop.type == "REAL"
+    assert prop.kind == "wp"
+
+
 def test_field():
     ''' Tests that a kernel call with only fields produces correct code '''
     _, invoke_info = parse(os.path.join(os.path.
@@ -2168,6 +2181,28 @@ def t08p1_kernel_without_fld_args():
                            "test_files", "gocean1p0",
                            "test08.1_invoke_kernel_no_fld_args.f90"),
               api="gocean1.0")
+
+
+def t08p2_break_grid_prop_lookup():
+    ''' Tests that an invoke containing a kernel call requiring
+    a property of the grid  results in an error if no valid field
+    arguments can be found '''
+    _, invoke_info = parse(os.path.join(os.path.
+                                        dirname(os.path.
+                                                abspath(__file__)),
+                                        "test_files", "gocean1p0",
+                                        "single_invoke_grid_props.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    kernels = schedule.walk(schedule._children, DynKern)
+    # Break the types of all of the kernel arguments
+    for kern in kernels:
+        for arg in kern._arguments.args:
+            arg._type = "scalar"
+    fld = invoke._find_grid_accessor()
+    assert fld is None
 
 
 def t09_kernel_missing_stencil_prop():
