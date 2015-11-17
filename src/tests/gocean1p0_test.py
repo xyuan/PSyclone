@@ -77,6 +77,32 @@ def test_gen_code_invalid_arg_type():
         _ = psy.gen
 
 
+def test_gen_code_no_fld_type():
+    '''Tests that GOKern.gen_code raises an error if a grid-property
+    is required but no valid field arguments can be found
+
+    '''
+    _, invoke_info = parse(os.path.join(os.path.
+                                        dirname(os.path.
+                                                abspath(__file__)),
+                                        "test_files", "gocean1p0",
+                                        "single_invoke_grid_props.f90"),
+                           api=API)
+    psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    schedule.deref_routine = False
+    from gocean1p0 import GOKern
+    kernels = schedule.walk(schedule._children, GOKern)
+    # Break the types of all of the kernel arguments
+    for kern in kernels:
+        for arg in kern._arguments.args:
+            if arg._arg._type == "field":
+                arg._arg._type = "scalar"
+    with pytest.raises(GenerationError):
+        _ = psy.gen
+
+
 def test_field():
     ''' Tests that a kernel call with only fields produces correct code '''
     _, invoke_info = parse(os.path.join(os.path.
