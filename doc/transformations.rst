@@ -35,6 +35,10 @@ API-specific sections).
     :members:
     :noindex:
 
+.. autoclass:: transformations.DereferenceTrans
+    :members:
+    :noindex:
+
 .. autoclass:: transformations.LoopFuseTrans
     :members:
     :noindex:
