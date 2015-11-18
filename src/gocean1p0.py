@@ -439,6 +439,10 @@ class GOInvoke(Invoke):
                     if grid_arg:
                         arg_list.append(grid_arg.name+"%grid%"+arg)
                     else:
+                        # In theory this should never happen as we're within
+                        # an if(have array args){} and if we have array args
+                        # then we must have one that we can use to look-up
+                        # grid properties.
                         raise GenerationError("We require a grid property but no "
                                               "field object has been found from "
                                               "which to obtain it.")
@@ -453,24 +457,27 @@ class GOInvoke(Invoke):
                                              entity_decls=self.unique_args_arrays)
                     invoke_sub_arrays.add(my_decl_arrays)
                 if len(self.unique_args_iscalars) > 0:
-                    my_decl_iscalars = DeclGen(invoke_sub_arrays,
-                                               datatype="INTEGER",
-                                               intent="inout",
-                                               entity_decls=self.unique_args_iscalars)
+                    my_decl_iscalars = DeclGen(
+                        invoke_sub_arrays,
+                        datatype="INTEGER",
+                        intent="inout",
+                        entity_decls=self.unique_args_iscalars)
                     invoke_sub_arrays.add(my_decl_iscalars)
                 if len(self.unique_args_rscalars) > 0:
-                    my_decl_rscalars = DeclGen(invoke_sub_arrays,
-                                               datatype="REAL",
-                                               kind="wp",
-                                               intent="inout",
-                                               entity_decls=self.unique_args_rscalars)
+                    my_decl_rscalars = DeclGen(
+                        invoke_sub_arrays,
+                        datatype="REAL",
+                        kind="wp",
+                        intent="inout",
+                        entity_decls=self.unique_args_rscalars)
                     invoke_sub_arrays.add(my_decl_rscalars)
                 if len(self.unique_grid_props_rarrays) > 0:
-                    my_decl_rgprops = DeclGen(invoke_sub_arrays,
-                                              datatype="REAL",
-                                              intent="inout", kind="wp",
-                                              dimension="nx,ny",
-                                              entity_decls=self.unique_grid_props_rarrays)
+                    my_decl_rgprops = DeclGen(
+                        invoke_sub_arrays,
+                        datatype="REAL",
+                        intent="inout", kind="wp",
+                        dimension="nx,ny",
+                        entity_decls=self.unique_grid_props_rarrays)
                     invoke_sub_arrays.add(my_decl_rgprops)
                 if len(self.unique_grid_props_iarrays) > 0:
                     my_decl_igprops = DeclGen(invoke_sub_arrays,
@@ -1089,6 +1096,7 @@ class GOKernelGridArgument(object):
             for this argument. Grid properties are not passed from the
             algorithm layer so None is returned.'''
         return None
+
 
 class GO1p0Descriptor(Descriptor):
     '''Description of a GOcean 1.0 kernel argument, as obtained by
