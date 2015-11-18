@@ -22,7 +22,7 @@ Available
 
 Most transformations are generic as the schedule structure is
 independent of the API, however it often makes sense to specialise
-these for a particular API by adding API-specific errors checks. Some
+these for a particular API by adding API-specific error checks. Some
 transformations are API-specific (or specific to a set of API's
 e.g. dynamo). Currently these different types of transformation are
 indicated by their names.

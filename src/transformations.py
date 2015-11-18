@@ -968,7 +968,7 @@ class GOConstLoopBoundsTrans(Transformation):
 
 
 class DereferenceTrans(Transformation):
-    ''' Switch on (or off) the generation of the introduction of a
+    '''Switch on (or off) the generation of the introduction of a
     de-referencing routine into the PSy layer, e.g.:
 
     >>> from parse import parse
@@ -990,6 +990,18 @@ class DereferenceTrans(Transformation):
     >>> # newsched, _ = dtrans.apply(schedule, deref=False)
     >>>
     >>> newsched.view()
+
+    By default PSyclone will generate a 'de-referencing' routine for
+    each invoke. The purpose of this routine is to 'unpack' any
+    Fortran derived types in order to get references to the arrays and
+    scalars that they contain. These references are then passed to a
+    second routine where they are declared in terms of Fortran
+    intrinsic types.  It is this second routine that then contains all
+    loops and kernel calls. If the de-referencing routine is
+    switched-off for an invoke then the routine containing loops and
+    kernel calls will also involve derived types. This can significantly
+    affect the optimisations that some Fortran compilers will be
+    prepared to apply.
 
     '''
     def __str__(self):
