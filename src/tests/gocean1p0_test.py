@@ -53,6 +53,21 @@ def test_grid_accessor():
     assert arg is None
 
 
+def test_gokerngridarg_init():
+    ''' Tests that the Initialiser for GOKernelGridArgument raises
+    an error if an un-recognised grid property is requested '''
+    from gocean1p0 import GOKernelGridArgument
+    # We can't 'monkey patch' (change a class at run-time) an instance
+    # of base object() type. However, as soon as we have a class
+    # that inherits from object then we can. Therefore we use
+    # ParseError here as it's already imported into this module.
+    arg = ParseError("blah")
+    # Monkey patch a 'grid_prop' attribute into this oject
+    arg.grid_prop = "NOT_A_GRID_PROPERTY"
+    with pytest.raises(GenerationError):
+        _ = GOKernelGridArgument(arg)
+
+
 def test_gen_code_invalid_arg_type():
     '''Tests that GOKern.gen_code raises an error if no
     valid field arguments can be found
