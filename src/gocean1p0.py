@@ -1,9 +1,9 @@
-#-------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # (c) The copyright relating to this work is owned jointly by the Crown,
 # Met Office and NERC 2015.
 # However, it has been created with the help of the GungHo Consortium,
 # whose members are identified at https://puma.nerc.ac.uk/trac/GungHo/wiki
-#-------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
 # Authors R. Ford and A. R. Porter, STFC Daresbury Lab
 # Funded by the GOcean project
 
@@ -72,7 +72,7 @@ class GridProperty(object):
     def type(self):
         ''' The Fortran type (REAL or INTEGER) of this variable '''
         return self._type
-    
+
     @property
     def rank(self):
         '''The rank of the Fortran variable used to store this grid
@@ -88,61 +88,62 @@ class GridProperty(object):
 
 # A dictionary giving the mapping from meta-data names for
 # properties of the grid to their names in the Fortran grid_type.
-GRID_PROPERTY_DICT = {"grid_area_t":GridProperty(name="area_t",
+GRID_PROPERTY_DICT = {"grid_area_t": GridProperty(name="area_t",
+                                                  rank=2,
+                                                  type="REAL",
+                                                  kind="wp"),
+                      "grid_area_u": GridProperty(name="area_u",
+                                                  rank=2,
+                                                  type="REAL",
+                                                  kind="wp"),
+                      "grid_area_v": GridProperty(name="area_v",
+                                                  rank=2,
+                                                  type="REAL",
+                                                  kind="wp"),
+                      "grid_mask_t": GridProperty(name="tmask",
+                                                  rank=2,
+                                                  type="INTEGER"),
+                      "grid_dx_t": GridProperty(name="dx_t",
+                                                rank=2,
+                                                type="REAL",
+                                                kind="wp"),
+                      "grid_dx_u": GridProperty(name="dx_u",
+                                                rank=2,
+                                                type="REAL",
+                                                kind="wp"),
+                      "grid_dx_v": GridProperty(name="dx_v",
+                                                rank=2,
+                                                type="REAL",
+                                                kind="wp"),
+                      "grid_dy_t": GridProperty(name="dy_t",
+                                                rank=2,
+                                                type="REAL",
+                                                kind="wp"),
+                      "grid_dy_u": GridProperty(name="dy_u",
+                                                rank=2,
+                                                type="REAL",
+                                                kind="wp"),
+                      "grid_dy_v": GridProperty(name="dy_v",
+                                                rank=2,
+                                                type="REAL",
+                                                kind="wp"),
+                      "grid_lat_u": GridProperty(name="gphiu",
                                                  rank=2,
                                                  type="REAL",
                                                  kind="wp"),
-                      "grid_area_u":GridProperty(name="area_u",
+                      "grid_lat_v": GridProperty(name="gphiv",
                                                  rank=2,
                                                  type="REAL",
                                                  kind="wp"),
-                      "grid_area_v":GridProperty(name="area_v",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_mask_t":GridProperty(name="tmask",
-                                                 rank=2,
-                                                 type="INTEGER"),
-                      "grid_dx_t":GridProperty(name="dx_t",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_dx_u":GridProperty(name="dx_u",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_dx_v":GridProperty(name="dx_v",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_dy_t":GridProperty(name="dy_t",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_dy_u":GridProperty(name="dy_u",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_dy_v":GridProperty(name="dy_v",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_lat_u":GridProperty(name="gphiu",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_lat_v":GridProperty(name="gphiv",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_dx_const":GridProperty(name="dx",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_dy_const":GridProperty(name="dy",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp")}
+                      "grid_dx_const": GridProperty(name="dx",
+                                                    rank=2,
+                                                    type="REAL",
+                                                    kind="wp"),
+                      "grid_dy_const": GridProperty(name="dy",
+                                                    rank=2,
+                                                    type="REAL",
+                                                    kind="wp")}
+
 
 class GOPSy(PSy):
     ''' The GOcean 1.0 specific PSy class. This creates a GOcean specific
@@ -152,6 +153,7 @@ class GOPSy(PSy):
     def __init__(self, invoke_info):
         PSy.__init__(self, invoke_info)
         self._invokes = GOInvokes(invoke_info.calls)
+
     @property
     def gen(self):
         '''
@@ -180,7 +182,7 @@ class GOInvokes(Invokes):
         invoke class to the base class so it creates the one we require. '''
     def __init__(self, alg_calls):
         if False:
-            self._0_to_n = GOInvoke(None, None) # for pyreverse
+            self._0_to_n = GOInvoke(None, None)  # for pyreverse
 
         Invokes.__init__(self, alg_calls, GOInvoke)
 
@@ -205,7 +207,7 @@ class GOInvokes(Invokes):
                                                   "{0}: INDEX_OFFSET of '{1}' "
                                                   "does not match that ({2}) "
                                                   "of other kernels. This is "
-                                                  "not supported.".\
+                                                  "not supported.".
                                                   format(kern_call.name,
                                                          kern_call.index_offset,
                                                          offset))
@@ -224,7 +226,7 @@ class GOInvoke(Invoke):
         arguments that are {integer, real} scalars. '''
     def __init__(self, alg_invocation, idx):
         if False:
-            self._schedule = GOSchedule(None) # for pyreverse
+            self._schedule = GOSchedule(None)  # for pyreverse
         Invoke.__init__(self, alg_invocation, idx, GOSchedule)
 
     @property
