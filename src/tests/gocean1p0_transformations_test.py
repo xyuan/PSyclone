@@ -838,7 +838,7 @@ def test_acc_parallel_trans():
 
 def test_acc_data_not_a_schedule():
     ''' Test that we raise an appropriate error if we attempt to apply
-    and OpenACC Data transformation to something that is not a Schedule '''
+    an OpenACC Data transformation to something that is not a Schedule '''
     psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
     schedule = invoke.schedule
 
@@ -851,13 +851,65 @@ def test_acc_data_not_a_schedule():
 def test_acc_data_correct_pcopy():
     ''' Test that we correctly generate the arguments to the pcopy
     clause of an OpenACC data region '''
+    from psyGen import Loop
     psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
     schedule = invoke.schedule
 
     accpt = OpenACCParallelTrans()
     accdt = OpenACCDataTrans()
-    new_sched, _ = acct.apply(schedule)
 
+    # Put each loop within an OpenACC parallel region
     for child in schedule.children:
-       pass
-    assert 1 == 0 
+        if isinstance(child, Loop):
+            new_sched, _ = accpt.apply(child)
+
+    # Create a data region for the whole schedule
+    new_sched, _ = accdt.apply(new_sched)
+
+    invoke.schedule = new_sched
+    code = str(psy.gen)
+    pcopy = "!$acc enter data pcopyin(cu_fld,p_fld,u_fld,cv_fld,v_fld,"
+    "unew_fld,uold_fld)"
+
+    assert pcopy in code
+
+
+def test_acc_data_parallel_commute():
+    '''Test that we can apply the OpenACC parallel and data
+    transformations in either order'''
+    from psyGen import Loop
+
+    accpt = OpenACCParallelTrans()
+    accdt = OpenACCDataTrans()
+
+    psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
+    schedule = invoke.schedule
+
+    # Put each loop within an OpenACC parallel region
+    for child in schedule.children:
+        if isinstance(child, Loop):
+            new_sched, _ = accpt.apply(child)
+
+    # Create a data region for the whole schedule
+    new_sched, _ = accdt.apply(new_sched)
+
+    invoke.schedule = new_sched
+    code1 = str(psy.gen)
+
+    # Repeat these transformations but create the region
+    # before the parallel loops
+    psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
+    schedule = invoke.schedule
+
+    # Create a data region for the whole schedule
+    new_sched, _ = accdt.apply(schedule)
+
+    # Put each loop within an OpenACC parallel region
+    for child in schedule.children:
+        if isinstance(child, Loop):
+            new_sched, _ = accpt.apply(child)
+
+    invoke.schedule = new_sched
+    code2 = str(psy.gen)
+
+    assert code1 == code2
