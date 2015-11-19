@@ -31,20 +31,29 @@ The generic transformations currently available are given below (a
 number of these have specialisations which can be found in the
 API-specific sections).
 
+.. autoclass:: transformations.KernelModuleInlineTrans
+    :members:
+    :noindex:
+
 .. autoclass:: transformations.LoopFuseTrans
     :members:
+    :noindex:
 
 .. autoclass:: transformations.ColourTrans
     :members:
+    :noindex:
 
 .. autoclass:: transformations.OMPLoopTrans
     :members:
+    :noindex:
 
 .. autoclass:: transformations.OMPParallelTrans
     :members:
+    :noindex:
 
 .. autoclass:: transformations.OMPParallelLoopTrans
     :members:
+    :noindex:
 
 Applying
 --------
@@ -121,6 +130,8 @@ can be found in the runme*.py files within the examples/dynamo/eg1 and
 examples/dynamo/eg2 directories. Some simple examples of the use of
 transformations are also given in the previous section.
 
+.. _sec_transformations_script:
+
 Script
 ++++++
 
@@ -133,7 +144,7 @@ layer code appropriately. By default this script will generate
     > python generator.py algspec.f90
     > python generator.py -oalg alg.f90 -opsy psy.f90 -api dynamo0.3 algspec.f90
 
-The generator.py script has an optional **-s** option which allows the
+The generator.py script has an optional **-s** flag which allows the
 user to specify a script file to modify the PSy layer as
 required. Script files may be specified without a path. For
 example:
@@ -157,6 +168,7 @@ PSyclone also provides the same functionality via a function (which is
 what the **generator.py** script calls internally)
 
 .. autofunction:: generator.generate
+		  :noindex:
 
 A valid script file must contain a **trans** function which accepts a **PSy**
 object as an argument and returns a **PSy** object, i.e.:
@@ -183,3 +195,8 @@ below does the same thing as the example in the
 Of course the script may apply as many transformations as is required
 for a particular schedule and may apply transformations to all the
 schedules (i.e. invokes) contained within the PSy layer.
+
+An example of the use of transformations scripts can be found in the
+examples/dynamo/eg3 directory. Please read the examples/dynamo/README
+file first as it explains how to run the example.
+

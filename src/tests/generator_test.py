@@ -12,6 +12,7 @@
 '''
 
 from generator import generate, GenerationError
+from parse import ParseError
 import pytest
 import os
 
@@ -64,9 +65,9 @@ def test_wrong_kernel_path():
     root_path = os.path.dirname(os.path.abspath(__file__))
     with pytest.raises(IOError):
         generate(os.path.join(root_path,
-                              "test_files", "dynamo0p1", "algorithm",
-                              "1_single_function.f90"),
-                 api="dynamo0.1",
+                              "test_files", "dynamo0p3",
+                              "1.1_single_invoke_qr.f90"),
+                 api="dynamo0.3",
                  kernel_path=os.path.join(root_path,
                                           "test_files", "gocean0p1"))
 
@@ -188,16 +189,46 @@ def test_script_invalid_content():
                             "test_files", "dynamo0p3", "error.py"))
 
 
-def test_script_no_trans():
+def test_script_invalid_content_runtime():
     ''' checks that generator.py raises an appropriate error when a
-        script file does not contain a trans() function '''
+        script file contains valid python syntactically but produces a
+        runtime exception. '''
     root_path = os.path.dirname(os.path.abspath(__file__))
     with pytest.raises(GenerationError):
         _, _ = generate(os.path.join(root_path, "test_files", "dynamo0p3",
                                      "1_single_invoke.f90"),
                         api="dynamo0.3",
+                        script_name=os.path.join(
+                            "test_files", "dynamo0p3", "runtime_error.py"))
+
+
+def test_script_no_trans():
+    ''' checks that generator.py raises an appropriate error when a
+        script file does not contain a trans() function '''
+    root_path = os.path.dirname(os.path.abspath(__file__))
+    with pytest.raises(GenerationError) as excinfo:
+        _, _ = generate(os.path.join(root_path, "test_files", "dynamo0p3",
+                                     "1_single_invoke.f90"),
+                        api="dynamo0.3",
                         script_name=os.path.join("test_files", "dynamo0p3",
                                                  "no_trans.py"))
+    assert 'attempted to import' in str(excinfo.value)
+
+
+def test_script_attr_error():
+    ''' checks that generator.py raises an appropriate error when a
+        script file contains a trans() function which raises an
+        attribute error. This is what we previously used to check for
+        a script file not containing a trans() function.'''
+    root_path = os.path.dirname(os.path.abspath(__file__))
+    with pytest.raises(GenerationError) as excinfo:
+        _, _ = generate(os.path.join(root_path, "test_files", "dynamo0p3",
+                                     "1_single_invoke.f90"),
+                        api="dynamo0.3",
+                        script_name=os.path.join(root_path, "test_files",
+                                                 "dynamo0p3",
+                                                 "error_trans.py"))
+    assert 'object has no attribute' in str(excinfo.value)
 
 
 def test_script_null_trans():
@@ -282,24 +313,56 @@ def test_script_trans():
     # third - check that the results are the same ...
     assert str(generated_code_1) == str(generated_code_2)
 
-# gocean1.0 API-specific tests
+DYN03_BASE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "test_files", "dynamo0p3")
 
 
-def test01_kernels_different_grid_offsets_one_invoke():
-    ''' Check that the parser raises an error if two kernels in a
-        single invoke specify different index offsets '''
-    with pytest.raises(GenerationError):
-        generate(os.path.join(os.path.dirname(
-            os.path.abspath(__file__)), "test_files", "gocean1p0",
-            "test01_different_grid_offsets_one_invoke.f90"),
-            api="gocean1.0")
+def test_alg_lines_too_long_tested():
+    ''' Test that the generate function causes an exception if the
+    line_length argument is set to True and the algorithm file has
+    lines longer than 132 characters. We use the dynamo0.3 API in this
+    case but could have chosen any. '''
+    alg_filename = os.path.join(DYN03_BASE_PATH, "13_alg_long_line.f90")
+    with pytest.raises(ParseError) as excinfo:
+        _, _ = generate(alg_filename, api="dynamo0.3", line_length=True)
+    assert 'algorithm file does not conform' in str(excinfo.value)
 
 
-def test02_kernels_different_grid_offsets_two_invokes():
-    ''' Check that the parser raises an error if the two kernels
-        in different invokes specify different index offsets. '''
-    with pytest.raises(GenerationError):
-        generate(os.path.join(os.path.dirname(
-            os.path.abspath(__file__)), "test_files", "gocean1p0",
-            "test02_different_grid_offsets_two_invokes.f90"),
-            api="gocean1.0")
+def test_alg_lines_too_long_not_tested():
+    ''' Test that the generate function returns successfully if the
+    line_length argument is not set (as it should default to False)
+    when the algorithm file has lines longer than 132 characters. We
+    use the dynamo0.3 API in this case but could have chosen any.'''
+    alg_filename = os.path.join(DYN03_BASE_PATH, "13_alg_long_line.f90")
+    _, _ = generate(alg_filename, api="dynamo0.3")
+
+
+def test_kern_lines_too_long_tested():
+    ''' Test that the generate function raises an exception if the
+    line_length argument is set to True and a Kernel file has
+    lines longer than 132 characters. We use the dynamo0.3 API in this
+    case but could have chosen any. '''
+    alg_filename = os.path.join(DYN03_BASE_PATH, "13.1_kern_long_line.f90")
+    with pytest.raises(ParseError) as excinfo:
+        _, _ = generate(alg_filename, api="dynamo0.3", line_length=True)
+    assert 'kernel file' in str(excinfo.value)
+    assert 'does not conform' in str(excinfo.value)
+
+
+def test_kern_lines_too_long_not_tested():
+    ''' Test that the generate function returns successfully if the
+    line_length argument is not set (as it should default to False)
+    when a kernel file has lines longer than 132 characters. We
+    use the dynamo0.3 API in this case but could have chosen any.'''
+    alg_filename = os.path.join(DYN03_BASE_PATH, "13.1_kern_long_line.f90")
+    _, _ = generate(alg_filename, api="dynamo0.3")
+
+
+def test_continuators():
+    '''Tests that input files with long lines that already have
+       continuators to make the code conform to the line length limit
+       do not cause an error '''
+    _, _ = generate(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "test_files", "dynamo0p3",
+                                 "1.1_single_invoke_qr.f90"),
+                    api="dynamo0.3", line_length=True)
