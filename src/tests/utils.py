@@ -8,6 +8,10 @@
 
 ''' test utilities '''
 
+from parse import parse
+import os
+from psyGen import PSyFactory
+
 
 def line_number(root, string_name):
     '''helper routine which returns the first index of the supplied
@@ -28,3 +32,15 @@ def count_lines(root, string_name):
         if string_name in line:
             count += 1
     return count
+
+
+def get_invoke(algfile, api, idx):
+    ''' Utility method to get the idx'th invoke from the algorithm
+    specified in file '''
+    _, info = parse(os.path.
+                    join(os.path.dirname(os.path.abspath(__file__)),
+                         "test_files", algfile),
+                    api=api)
+    psy = PSyFactory(api).create(info)
+    invoke = psy.invokes.invoke_list[idx]
+    return psy, invoke
