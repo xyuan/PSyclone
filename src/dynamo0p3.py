@@ -599,12 +599,13 @@ class DynInvoke(Invoke):
         # function space
         return False
 
-    def bc_dofs_required(self):
-        '''Returns the first kernel in this schedule that requires the
+    def bc_dofs_kernel(self):
+        ''' Returns the first kernel in this schedule that requires the
         boundary-condition dofs. Returns None if no BCs are
-        required.
-
-        '''
+        required. '''
+        # TODO remove matrix_vector_mm_code since this is a
+        # temporary hack until we have decided how to properly
+        # handle boundary conditions in Dynamo.
         bc_kernels = ["matrix_vector_mm_code", "enforce_bc_code"]
         # look in each kernel
         for kern_call in self.schedule.kern_calls():
@@ -612,12 +613,10 @@ class DynInvoke(Invoke):
                 return kern_call
         return None
 
-    def orientation_required(self, func_space):
-        '''Returns arg descriptor if orientation information is required for
+    def orientation_descriptor(self, func_space):
+        ''' Returns arg descriptor if orientation information is required for
         the given function space in this Invoke. Returns None
-        otherwise.
-
-        '''
+        otherwise. '''
         # look in each kernel
         for kern_call in self.schedule.kern_calls():
             # is there a descriptor for this function space?
@@ -1077,7 +1076,7 @@ class DynInvoke(Invoke):
                     psy2_caller_args.append(op_name)
                     psy2_dummy_args.append(op_name)
             # Orientation
-            fs_descriptor = self.orientation_required(function_space)
+            fs_descriptor = self.orientation_descriptor(function_space)
             if fs_descriptor:
                 # TODO get_orientation() does not currently exist in
                 # the Dynamo API since orientation is looked-up on a
@@ -1235,7 +1234,7 @@ class DynInvoke(Invoke):
                     invoke_sub.add(CallGen(invoke_sub, name=name + "%" +
                                    arg.ref_name +
                                    "%compute_diff_basis_function", args=args))
-        bc_kern = self.bc_dofs_required()
+        bc_kern = self.bc_dofs_kernel()
         if bc_kern:
             # One or more kernels require the application of boundary
             # conditions
