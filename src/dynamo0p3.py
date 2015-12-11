@@ -518,29 +518,24 @@ class DynInvoke(Invoke):
                             declarations.append(test_name)
         return declarations
 
-    def unique_args(self, datatype, proxy=False):
-        '''Returns a dictionary with <variable name>:<argument object> pairs
-        for all unique arguments of the specified datatype. If proxy
-        is set to True then the equivalent proxy variable names are
-        returned instead.
-
-        '''
+    def unique_args(self, datatype):
+        ''' Returns a list containing all of the
+        unique arguments of the specified datatype. '''
         if datatype not in VALID_ARG_TYPE_NAMES:
             raise GenerationError(
                 "unique_args called with an invalid datatype. "
                 "Expected one of '{0}' but found '{1}'".
                 format(str(VALID_ARG_TYPE_NAMES), datatype))
-        args = {}
+        args = []
+        arg_names = []
         for call in self.schedule.calls():
             for arg in call.arguments.args:
                 if arg.text is not None:
                     if arg.type == datatype:
-                        if proxy:
-                            test_name = arg.proxy_declaration_name
-                        else:
-                            test_name = arg.declaration_name
-                        if test_name not in args.keys():
-                            args[test_name] = arg
+                        test_name = arg.declaration_name
+                        if test_name not in arg_names:
+                            args.append(arg)
+                            arg_names.append(test_name)
         return args
 
     def arg_for_funcspace(self, fs_name):
@@ -750,12 +745,13 @@ class DynInvoke(Invoke):
         field_args = self.unique_args("gh_field")
         field_on_space = {}
         for fld in field_args:
+            fld_name = fld.declaration_name
             invoke_sub.add(TypeDeclGen(invoke_sub, datatype="field_type",
-                                       entity_decls=[fld],
+                                       entity_decls=[fld_name],
                                        intent="inout"))
             # Populate a dictionary that will allow us to map from
             # a space to a field that is on that space (if any)
-            field_on_space[field_args[fld].function_space] = field_args[fld]
+            field_on_space[fld.function_space] = fld
 
         # operators
         operator_declarations = self.unique_declarations("gh_operator")
@@ -778,30 +774,30 @@ class DynInvoke(Invoke):
         invoke_sub.add(CommentGen(invoke_sub, " Initialise field proxies"))
         invoke_sub.add(CommentGen(invoke_sub, ""))
 
-        fields = self.unique_args("gh_field", proxy=False)
-        for fname in fields:
-            arg = fields[fname]
+        fields = self.unique_args("gh_field")
+        for fld in fields:
+            fname = fld.declaration_name
             psy2_args = []
-            if arg.vector_size > 1:
-                for idx in range(1, arg.vector_size+1):
-                    lhs_name = arg.proxy_name + "("+str(idx)+")"
+            if fld.vector_size > 1:
+                for idx in range(1, fld.vector_size+1):
+                    lhs_name = fld.proxy_name + "("+str(idx)+")"
                     invoke_sub.add(AssignGen(invoke_sub,
                                    lhs=lhs_name,
-                                   rhs=arg.name +
+                                   rhs=fld.name +
                                              "("+str(idx)+")%get_proxy()"))
                     if invoke_sub_arrays:
                         psy2_caller_args.append(lhs_name+"%data")
-                        psy2_args.append(arg.proxy_name + "_"+str(idx))
+                        psy2_args.append(fld.proxy_name + "_"+str(idx))
             else:
-                invoke_sub.add(AssignGen(invoke_sub, lhs=arg.proxy_name,
-                                         rhs=arg.name+"%get_proxy()"))
+                invoke_sub.add(AssignGen(invoke_sub, lhs=fld.proxy_name,
+                                         rhs=fld.name+"%get_proxy()"))
                 if invoke_sub_arrays:
-                    psy2_caller_args.append(arg.proxy_name+"%data")
-                    psy2_args.append(arg.proxy_name)
+                    psy2_caller_args.append(fld.proxy_name+"%data")
+                    psy2_args.append(fld.proxy_name)
             if psy2_args:
                 # Add the collection of arguments to the dummy argument
                 # list and declare them within PSy2
-                dim_name = self.undf_name(arg.function_space)
+                dim_name = self.undf_name(fld.function_space)
                 psy2_dummy_args.extend(psy2_args)
                 invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
                                               datatype="real",
@@ -823,7 +819,7 @@ class DynInvoke(Invoke):
                            entity_decls=op_proxy_decs))
 
         # If we have one or more operators then initialise arrays for them
-        op_list = self.unique_args("gh_operator", proxy=True)
+        op_list = self.unique_args("gh_operator")
         if op_list:
             invoke_sub.add(CommentGen(invoke_sub, ""))
             if invoke_sub_arrays:
@@ -834,10 +830,11 @@ class DynInvoke(Invoke):
                                           " Initialise operator proxies"))
             invoke_sub.add(CommentGen(invoke_sub, ""))
 
-            for op in op_list.keys():
-                ncell3d_name = op + "_ncell_3d"
+            for op in op_list:
+                op_name = op.proxy_declaration_name
+                ncell3d_name = op_name + "_ncell_3d"
                 if invoke_sub_arrays:
-                    psy2_caller_args.append(op+"%ncell_3d")
+                    psy2_caller_args.append(op_name+"%ncell_3d")
                     psy2_dummy_args.append(ncell3d_name)
                     invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
                                                   datatype="integer",
@@ -845,17 +842,17 @@ class DynInvoke(Invoke):
                                                   entity_decls=[ncell3d_name]))
                 # Get the operator proxy
                 invoke_sub.add(AssignGen(invoke_sub,
-                                         lhs=op_list[op].proxy_name,
-                                         rhs=op_list[op].name+"%get_proxy()"))
-                stencil_name = op + "_local_stencil"
+                                         lhs=op.proxy_name,
+                                         rhs=op.name+"%get_proxy()"))
+                stencil_name = op_name + "_local_stencil"
                 invoke_sub.add(AssignGen(invoke_sub, lhs=stencil_name,
                                          pointer=True,
-                                         rhs=op+"%local_stencil"))
+                                         rhs=op_name+"%local_stencil"))
                 if invoke_sub_arrays:
                     psy2_caller_args.append(stencil_name)
                     psy2_dummy_args.append(stencil_name)
 
-                fspace = op_list[op].function_space
+                fspace = op.function_space
                 name = self.ndf_name(fspace)
                 if invoke_sub_arrays:
                     invoke_sub_arrays.add(DeclGen(invoke_sub_arrays,
