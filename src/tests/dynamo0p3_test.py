@@ -1797,7 +1797,6 @@ def test_multikern_invoke_any_space():
         _ = PSyFactory("dynamo0.3").create(invoke_info)
 
 
-@pytest.mark.xfail(reason="bug : loop fuse replicates maps in loops")
 def test_loopfuse():
     ''' Tests whether loop fuse actually fuses and whether
     multiple maps are produced or not. Multiple maps are not an
