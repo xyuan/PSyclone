@@ -715,12 +715,20 @@ class DynInvoke(Invoke):
         # create a namespace manager so we can avoid name clashes
         self._name_space_manager = NameSpaceFactory().create()
 
+        # Whether or not we are to create a de-referencing routine.
+        # If we are, then we create PSy1 in which all derived types
+        # etc. are 'unpacked'. This then calls PSy2 which deals only
+        # with intrinsic Fortran types.  If we're not then PSy1
+        # contains the loop(s) over cells and calls the kernel routine(s)
+        # directly.
+        make_deref_routine = self.schedule.deref_routine
+
         # create the subroutine that will un-pack the Fortran
         # derived types (and is called from the Algorithm layer)
         invoke_sub_psy1 = SubroutineGen(parent, name=self.name,
                                    args=self.psy_unique_var_names +
                                    self._psy_unique_qr_vars)
-        if self.schedule.deref_routine:
+        if make_deref_routine:
             # Create the subroutine that contains the 2nd level of the
             # PSy layer. This routine contains no references to
             # Fortran derived types. Since we don't yet know the list
@@ -741,34 +749,42 @@ class DynInvoke(Invoke):
         # add the subroutine argument declarations for the fields
         field_args = self.unique_args("gh_field")
         field_on_space = {}
+        field_names = []
         for fld in field_args:
-            fld_name = fld.declaration_name
-            invoke_sub_psy1.add(TypeDeclGen(invoke_sub_psy1, datatype="field_type",
-                                       entity_decls=[fld_name],
-                                       intent="inout"))
+            field_names.append(fld.declaration_name)
             # Populate a dictionary that will allow us to map from
             # a space to a field that is on that space (if any)
-            field_on_space[fld.function_space] = fld
+            if fld.function_space not in field_on_space:
+                field_on_space[fld.function_space] = fld
+        invoke_sub_psy1.add(TypeDeclGen(invoke_sub_psy1,
+                                        datatype="field_type",
+                                        entity_decls=field_names,
+                                        intent="inout"))
 
         # operators
         operator_declarations = self.unique_declarations("gh_operator")
         if len(operator_declarations) > 0:
-            invoke_sub_psy1.add(TypeDeclGen(invoke_sub_psy1, datatype="operator_type",
-                                       entity_decls=operator_declarations,
-                                       intent="inout"))
+            invoke_sub_psy1.add(TypeDeclGen(invoke_sub_psy1,
+                                            datatype="operator_type",
+                                            entity_decls=operator_declarations,
+                                            intent="inout"))
         # qr
         if len(self._psy_unique_qr_vars) > 0:
-            invoke_sub_psy1.add(TypeDeclGen(invoke_sub_psy1, datatype="quadrature_type",
-                                       entity_decls=self._psy_unique_qr_vars,
-                                       intent="in"))
+            invoke_sub_psy1.add(
+                TypeDeclGen(invoke_sub_psy1,
+                            datatype="quadrature_type",
+                            entity_decls=self._psy_unique_qr_vars,
+                            intent="in"))
 
-        # Declare and initialise proxies for each of the arguments. Each
+        # Declare and initialise proxies for each of the arguments. 
+        # If we're creating a de-referencing routine then each
         # proxy represents something that has to be passed from PSy1 to
         # PSy2. We have to take care of cases where we have vectors of
         # proxies as each of these represents a separate array that will
         # be passed down to PSy2.
         invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
-        invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, " Initialise field proxies"))
+        invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, 
+                                       " Initialise field proxies"))
         invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
 
         fields = self.unique_args("gh_field")
@@ -782,18 +798,21 @@ class DynInvoke(Invoke):
                                    lhs=lhs_name,
                                    rhs=fld.name +
                                              "("+str(idx)+")%get_proxy()"))
-                    if invoke_sub_psy2:
+                    if make_deref_routine:
                         psy2_caller_args.append(lhs_name+"%data")
                         psy2_args.append(fld.proxy_name + "_"+str(idx))
             else:
-                invoke_sub_psy1.add(AssignGen(invoke_sub_psy1, lhs=fld.proxy_name,
-                                         rhs=fld.name+"%get_proxy()"))
-                if invoke_sub_psy2:
+                invoke_sub_psy1.add(AssignGen(invoke_sub_psy1,
+                                              lhs=fld.proxy_name,
+                                              rhs=fld.name+"%get_proxy()"))
+                if make_deref_routine:
                     psy2_caller_args.append(fld.proxy_name+"%data")
                     psy2_args.append(fld.proxy_name)
             if psy2_args:
                 # Add the collection of arguments to the dummy argument
-                # list and declare them within PSy2
+                # list and declare them within PSy2. We declare them
+                # separately as we are specifying the extent of the array
+                # and this in turn depends on the function space of the field
                 dim_name = self.undf_name(fld.function_space)
                 psy2_dummy_args.extend(psy2_args)
                 invoke_sub_psy2.add(DeclGen(invoke_sub_psy2,
@@ -819,7 +838,7 @@ class DynInvoke(Invoke):
         op_list = self.unique_args("gh_operator")
         if op_list:
             invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
-            if invoke_sub_psy2:
+            if make_deref_routine:
                 invoke_sub_psy1.add(CommentGen(invoke_sub_psy1,
                                           " Initialise operator arrays"))
             else:
@@ -830,7 +849,7 @@ class DynInvoke(Invoke):
             for op in op_list:
                 op_name = op.proxy_declaration_name
                 ncell3d_name = op_name + "_ncell_3d"
-                if invoke_sub_psy2:
+                if make_deref_routine:
                     psy2_caller_args.append(op_name+"%ncell_3d")
                     psy2_dummy_args.append(ncell3d_name)
                     invoke_sub_psy2.add(DeclGen(invoke_sub_psy2,
@@ -845,13 +864,13 @@ class DynInvoke(Invoke):
                 invoke_sub_psy1.add(AssignGen(invoke_sub_psy1, lhs=stencil_name,
                                          pointer=True,
                                          rhs=op_name+"%local_stencil"))
-                if invoke_sub_psy2:
+                if make_deref_routine:
                     psy2_caller_args.append(stencil_name)
                     psy2_dummy_args.append(stencil_name)
 
                 fspace = op.function_space
                 name = self.ndf_name(fspace)
-                if invoke_sub_psy2:
+                if make_deref_routine:
                     invoke_sub_psy2.add(DeclGen(invoke_sub_psy2,
                                                   datatype="real",
                                                   kind="r_def", intent="inout",
@@ -880,14 +899,14 @@ class DynInvoke(Invoke):
             root_name="ncells", context="PSyVars", label="ncells")
 
         # Add these to the list of arguments we will pass down to PSy2
-        if invoke_sub_psy2:
+        if make_deref_routine:
             psy2_caller_args.extend([ncells_name, nlayers_name])
             psy2_dummy_args.extend([ncells_name, nlayers_name])
 
         # Create declarations for them both in PSy1 and PSy2.
         invoke_sub_psy1.add(DeclGen(invoke_sub_psy1, datatype="integer",
                                entity_decls=[ncells_name, nlayers_name]))
-        if invoke_sub_psy2:
+        if make_deref_routine:
             invoke_sub_psy2.add(DeclGen(invoke_sub_psy2,
                                           datatype="integer",
                                           intent="in",
@@ -909,7 +928,7 @@ class DynInvoke(Invoke):
             qr_names = ["nqp_h", "nqp_v"]
             invoke_sub_psy1.add(DeclGen(invoke_sub_psy1, datatype="integer",
                                    entity_decls=qr_names))
-            if invoke_sub_psy2:
+            if make_deref_routine:
                 invoke_sub_psy2.add(DeclGen(invoke_sub_psy2,
                                               datatype="integer",
                                               intent="in",
@@ -923,7 +942,7 @@ class DynInvoke(Invoke):
                          "wv(:) => null()"]
             invoke_sub_psy1.add(DeclGen(invoke_sub_psy1, datatype="real", pointer=True,
                            kind="r_def", entity_decls=decl_list))
-            if invoke_sub_psy2:
+            if make_deref_routine:
                 weight_names = ["wh", "wv"]
                 invoke_sub_psy2.add(DeclGen(invoke_sub_psy2, datatype="real",
                                               kind="r_def",
@@ -969,7 +988,7 @@ class DynInvoke(Invoke):
             # list to declare later
             ndf_name = self.ndf_name(function_space)
             var_list.append(ndf_name)
-            if invoke_sub_psy2:
+            if make_deref_routine:
                 psy2_caller_args.append(ndf_name)
                 psy2_dummy_args.append(ndf_name)
             invoke_sub_psy1.add(AssignGen(invoke_sub_psy1, lhs=ndf_name,
@@ -984,7 +1003,7 @@ class DynInvoke(Invoke):
                 # Append this name to the list of variables that we pass
                 # down to the kernel
                 var_list.append(undf_name)
-                if invoke_sub_psy2:
+                if make_deref_routine:
                     # We must also pass it to PSy2 if that is being
                     # created
                     psy2_caller_args.append(undf_name)
@@ -1006,7 +1025,7 @@ class DynInvoke(Invoke):
                                          rhs=name_on_space + "%" +
                                          arg_on_space.ref_name +
                                          "%get_dofmap()"))
-                if invoke_sub_psy2:
+                if make_deref_routine:
                     # The second dimension of the dofmap is indexed from zero
                     # and if we convert from a pointer (to the dofmap) to a
                     # simple array then this information is lost. Therefore
@@ -1026,7 +1045,7 @@ class DynInvoke(Invoke):
                 # and add name to list to declare later
                 lhs = "dim_"+function_space
                 var_dim_list.append(lhs)
-                if invoke_sub_psy2:
+                if make_deref_routine:
                     psy2_caller_args.append(lhs)
                     psy2_dummy_args.append(lhs)
 
@@ -1042,7 +1061,7 @@ class DynInvoke(Invoke):
                                            op_name + "(" + alloc_args + ")"))
                 # add basis function variable to list to declare later
                 psy1_operator_declarations.append(op_name + "(:,:,:,:)")
-                if invoke_sub_psy2:
+                if make_deref_routine:
                     psy2_operator_declarations.append(op_name + "(" +
                                                       alloc_args + ")")
                     psy2_caller_args.append(op_name)
@@ -1053,7 +1072,7 @@ class DynInvoke(Invoke):
                 # space and add name to list to declare later
                 lhs = "diff_dim_" + function_space
                 var_dim_list.append(lhs)
-                if invoke_sub_psy2:
+                if make_deref_routine:
                     psy2_caller_args.append(lhs)
                     psy2_dummy_args.append(lhs)
                 rhs = \
@@ -1069,7 +1088,7 @@ class DynInvoke(Invoke):
                                            op_name+"("+alloc_args+")"))
                 # add diff basis function variable to list to declare later
                 psy1_operator_declarations.append(op_name + "(:,:,:,:)")
-                if invoke_sub_psy2:
+                if make_deref_routine:
                     psy2_operator_declarations.append(op_name + "(" +
                                                       alloc_args + ")")
                     # Add the arrays containing the diff basis to the arg list
@@ -1090,7 +1109,7 @@ class DynInvoke(Invoke):
                                          rhs=name_on_space + "%" +
                                          arg_on_space.ref_name +
                                          "%get_orientation()"))
-                if invoke_sub_psy2:
+                if make_deref_routine:
                     invoke_sub_psy2.add(
                         DeclGen(invoke_sub_psy2,
                                 datatype="integer",
@@ -1106,7 +1125,7 @@ class DynInvoke(Invoke):
             # declare ndf and undf for all function spaces
             invoke_sub_psy1.add(DeclGen(invoke_sub_psy1, datatype="integer",
                                    entity_decls=var_list))
-            if invoke_sub_psy2:
+            if make_deref_routine:
                 invoke_sub_psy2.add(DeclGen(invoke_sub_psy2,
                                               datatype="integer",
                                               intent="in",
@@ -1117,7 +1136,7 @@ class DynInvoke(Invoke):
             invoke_sub_psy1.add(DeclGen(invoke_sub_psy1,
                                    datatype="integer",
                                    entity_decls=var_dim_list))
-            if invoke_sub_psy2:
+            if make_deref_routine:
                 invoke_sub_psy2.add(DeclGen(invoke_sub_psy2,
                                               datatype="integer",
                                               intent="in",
@@ -1128,7 +1147,7 @@ class DynInvoke(Invoke):
                                    allocatable=True,
                                    kind="r_def",
                                    entity_decls=psy1_operator_declarations))
-            if invoke_sub_psy2:
+            if make_deref_routine:
                 invoke_sub_psy2.add(
                     DeclGen(invoke_sub_psy2,
                             datatype="real",
@@ -1176,7 +1195,7 @@ class DynInvoke(Invoke):
                     invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
 
                     # Pass these down to PSy2 and declare them there too
-                    if invoke_sub_psy2:
+                    if make_deref_routine:
                         psy2_caller_args.extend(colour_vars)
                         psy2_dummy_args.extend(colour_vars)
                         invoke_sub_psy2.add(
@@ -1282,7 +1301,7 @@ class DynInvoke(Invoke):
                                    pointer=True,
                                    entity_decls=[boundary_dofs_name +
                                                  "(:,:) => null()"]))
-            if invoke_sub_psy2:
+            if make_deref_routine:
                 invoke_sub_psy2.add(
                     DeclGen(invoke_sub_psy2,
                             datatype="integer",
@@ -1306,7 +1325,7 @@ class DynInvoke(Invoke):
                                   "%vspace%get_boundary_dofs()"))
             invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
 
-        if invoke_sub_psy2:
+        if make_deref_routine:
             # Create the call to the 2nd level of the PSy layer
             # that deals only with intrinsic Fortran types.
             # Therefore, all scalar quantities etc. must be passed down
@@ -1362,7 +1381,7 @@ class DynInvoke(Invoke):
 
         # Finally, add the PSy routine(s) to my parent
         parent.add(invoke_sub_psy1)
-        if invoke_sub_psy2:
+        if make_deref_routine:
             parent.add(invoke_sub_psy2)
 
 
