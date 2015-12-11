@@ -127,6 +127,9 @@ def test_field():
                                         "single_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -224,6 +227,9 @@ def test_two_kernels():
                                         "single_invoke_two_kernels.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = psy.gen
 
     expected_output = (
@@ -336,6 +342,9 @@ def test_grid_property():
                                         "single_invoke_grid_props.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -438,6 +447,9 @@ def test_scalar_int_arg():
                                         "single_invoke_scalar_int_arg.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -539,6 +551,9 @@ def test_scalar_float_arg():
                                         "single_invoke_scalar_float_arg.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -641,6 +656,9 @@ def test_ne_offset_cf_points():
                                 "test14_ne_offset_cf_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -745,6 +763,9 @@ def test_ne_offset_ct_points():
                                 "test15_ne_offset_ct_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -846,6 +867,9 @@ def test_ne_offset_all_cu_points():
                                 "test16_ne_offset_cu_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -947,6 +971,9 @@ def test_ne_offset_all_cv_points():
                                 "test17_ne_offset_cv_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -1047,6 +1074,9 @@ def test_ne_offset_all_cf_points():
                                 "test18_ne_offset_cf_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -1150,6 +1180,9 @@ def test_sw_offset_cf_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -1256,6 +1289,9 @@ def test_sw_offset_all_cf_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -1359,6 +1395,9 @@ def test_sw_offset_ct_points():
                                 "test20_sw_offset_ct_updated_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -1462,6 +1501,9 @@ def test_sw_offset_all_ct_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -1566,6 +1608,9 @@ def test_sw_offset_all_cu_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -1666,6 +1711,9 @@ def test_sw_offset_all_cv_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -1768,6 +1816,9 @@ def test_offset_any_all_cu_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn on generation of de-referencing routine
+    invoke.schedule.deref_routine = True
 
     gen_code = str(psy.gen)
     expected_output = (
@@ -1856,6 +1907,8 @@ def test_offset_any_all_points():
                                 "_one_invoke.f90"),
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
 
     expected_output = (
@@ -1895,7 +1948,7 @@ def test_offset_any_all_points():
         "    END SUBROUTINE invoke_0_copy_arrays\n"
         "  END MODULE psy_single_invoke_test")
     print generated_code
-    assert generated_code.find(expected_output) != -1
+    assert expected_output in generated_code
 
 
 def test_offset_any_all_points_no_deref():
@@ -1914,9 +1967,6 @@ def test_offset_any_all_points_no_deref():
                            api=API)
     psy = PSyFactory(API).create(invoke_info)
     invoke = psy.invokes.invoke_list[0]
-    schedule = invoke.schedule
-    # Turn-off generation of de-referencing routine
-    schedule.deref_routine = False
     generated_code = str(psy.gen)
 
     expected_output = (

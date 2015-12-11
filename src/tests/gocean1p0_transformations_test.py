@@ -56,30 +56,32 @@ def test_deref_not_schedule():
 
 
 def test_deref_default():
-    '''Check that we introduce a de-referencing routine by default
+    '''Check that we do not have a de-referencing routine by default
 
     '''
     psy, invoke = get_invoke("test11_different_iterates_over_"
                            "one_invoke.f90", 0)
     schedule = invoke.schedule
-    dtrans = DereferenceTrans()
 
     # Check that the generated code contains a de-referencing
     # routine by default
     gen = str(psy.gen)
     print gen
-    expected = ("CALL invoke_0_arrays(nx, ny, istop, jstop, ncycle, "
-                "cv_fld%data, p_fld%data, v_fld%data, p_fld%grid%tmask)\n"
-                "    END SUBROUTINE invoke_0\n"
-                "    SUBROUTINE invoke_0_arrays(nx, ny, istop, jstop, "
-                "ncycle, cv_fld, p_fld, v_fld, tmask)\n"
-                "      USE kernel_scalar_int, ONLY: bc_ssh_code\n"
-                "      USE kernel_ne_offset_mod, ONLY: compute_cv_code\n"
-                "      INTEGER, intent(in) :: nx, ny, istop, jstop\n"
-                "      REAL(KIND=wp), intent(inout), dimension(nx,ny) :: "
-                "cv_fld, p_fld, v_fld\n"
-                "      INTEGER, intent(inout) :: ncycle\n"
-                "      INTEGER, intent(inout), dimension(nx,ny) :: tmask\n" )
+    expected = (
+        "      DO j=2,jstop-1\n"
+        "        DO i=2,istop\n"
+        "          CALL compute_cv_code(i, j, cv_fld%data, p_fld%data, "
+        "v_fld%data)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "      DO j=1,jstop+1\n"
+        "        DO i=1,istop+1\n"
+        "          CALL bc_ssh_code(i, j, ncycle, p_fld%data, "
+        "p_fld%grid%tmask)\n"
+        "        END DO \n"
+        "      END DO \n"
+        "    END SUBROUTINE invoke_0\n"
+        "  END MODULE psy_single_invoke_different_iterates_over")
     assert expected in gen
 
 
@@ -120,6 +122,10 @@ def test_const_bounds_toggle_off():
                              "one_invoke.f90", 0)
     schedule = invoke.schedule
     cbtrans = GOConstLoopBoundsTrans()
+    dtrans = DereferenceTrans()
+    # Turn-on generation of de-referencing routine
+    schedule, _ = dtrans.apply(schedule)
+
     with pytest.raises(TransformationError):
         _, _ = cbtrans.apply(schedule, const_bounds=False)
 
@@ -163,6 +169,7 @@ def test_const_loop_bounds_toggle():
     schedule = invoke.schedule
     cbtrans = GOConstLoopBoundsTrans()
     dtrans = DereferenceTrans()
+    schedule, _ = dtrans.apply(schedule)
 
     # First check that the generated code uses constant loop
     # bounds by default
@@ -266,6 +273,8 @@ def test_omp_parallel_loop():
     omp = GOceanOMPParallelLoopTrans()
     cbtrans = GOConstLoopBoundsTrans()
     dtrans = DereferenceTrans()
+    # Turn on the de-referencing routine
+    schedule, _ = dtrans.apply(schedule)
     omp_sched, _ = omp.apply(schedule.children[0])
 
     invoke.schedule = omp_sched
@@ -1353,6 +1362,7 @@ def test_module_inline():
     true for the specified kernel. '''
     psy, invoke = get_invoke("single_invoke_three_kernels.f90", 0)
     schedule = invoke.schedule
+    schedule.deref_routine = True
     kern_call = schedule.children[0].children[0].children[0]
     kern_call.module_inline = True
     gen = str(psy.gen)

@@ -515,7 +515,7 @@ class GOSchedule(Schedule):
         # part of the PSy layer. This then allows the code containing
         # the loops and kernel calls to deal only with intrinsic
         # Fortran types.
-        self._deref_routine = True
+        self._deref_routine = False
 
         if self._const_loop_bounds:
             self._iloop_stop = "istop"
