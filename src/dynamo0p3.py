@@ -698,19 +698,17 @@ class DynInvoke(Invoke):
         return False
 
     def gen_code(self, parent):
-        '''Generates GOcean specific invocation code (the subroutine called by
-           the associated invoke call in the algorithm layer). This
-           consists of the PSy invocation subroutine and the
-           declaration of its arguments. If we are generating a
-           'de-referencing routine' ({{{self.schedule.deref_routine ==
-           True}}}) then, once all derived types have been
-           de-referenced to get at native arrays, these arrays are
-           passed to a second subroutine which contains all loops and
-           the Kernel calls. If we are not generating a de-referencing
-           routine then the Kernel calls are made from the PSy
-           invocation routine.
-
-        '''
+        ''' Generates GOcean specific invocation code (the subroutine called
+        by the associated invoke call in the algorithm layer). This
+        consists of the PSy invocation subroutine and the
+        declaration of its arguments. If we are generating a
+        'de-referencing routine' ({{{self.schedule.deref_routine ==
+        True}}}) then, once all derived types have been
+        de-referenced to get at native arrays, these arrays are
+        passed to a second subroutine which contains all loops and
+        the Kernel calls. If we are not generating a de-referencing
+        routine then the Kernel calls are made from the PSy
+        invocation routine. '''
         from f2pygen import SubroutineGen, TypeDeclGen, AssignGen, DeclGen, \
             AllocateGen, DeallocateGen, CallGen, CommentGen, UseGen, \
             IfThenGen
@@ -1456,7 +1454,7 @@ class DynKern(Kern):
     ''' Stores information about Dynamo Kernels as specified by the
     Kernel metadata and associated algorithm call. Uses this
     information to generate appropriate PSy layer code for the Kernel
-    instance or to generate a Kernel stub'''
+    instance or to generate a Kernel stub '''
 
     def __init__(self):
         if False:
@@ -1466,7 +1464,7 @@ class DynKern(Kern):
     def load(self, call, parent=None):
         ''' sets up kernel information with the call object which is
         created by the parser. This object includes information about
-        the invoke call and the associated kernel'''
+        the invoke call and the associated kernel '''
 
         self._setup_qr(call.ktype.func_descriptors)
         self._setup(call.ktype, call.module_name, call.args, parent)
