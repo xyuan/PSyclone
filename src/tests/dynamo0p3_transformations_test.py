@@ -38,6 +38,10 @@ def test_colour_trans_declarations():
     invoke = psy.invokes.get('invoke_0_testkern_type')
     schedule = invoke.schedule
     ctrans = Dynamo0p3ColourTrans()
+    dtrans = DereferenceTrans()
+
+    # Turn-on creation of de-referencing routine (PSy2)
+    schedule, _ = dtrans.apply(schedule)
 
     # Colour the loop
     cschedule, _ = ctrans.apply(schedule.children[0])
@@ -684,6 +688,7 @@ def test_multi_kernel_single_omp_region():
     otrans = Dynamo0p3OMPLoopTrans()
     rtrans = OMPParallelTrans()
     dtrans = DereferenceTrans()
+    schedule, _ = dtrans.apply(schedule)
 
     # Apply OpenMP to each of the loops
     for child in schedule.children:
@@ -814,6 +819,10 @@ def test_loop_fuse():
     schedule = invoke.schedule
 
     ftrans = DynamoLoopFuseTrans()
+    dtrans = DereferenceTrans()
+
+    # Turn-on creation of de-referencing routine (PSy2)
+    schedule, _ = dtrans.apply(schedule)
 
     # Fuse the loops
     nchildren = len(schedule.children)
@@ -893,6 +902,10 @@ def test_loop_fuse_omp():
 
     ftrans = DynamoLoopFuseTrans()
     otrans = DynamoOMPParallelLoopTrans()
+    dtrans = DereferenceTrans()
+
+    # Turn on the creation of a de-referencing routine
+    schedule, _ = dtrans.apply(schedule)
 
     # Fuse the loops
     nchildren = len(schedule.children)
@@ -988,6 +1001,9 @@ def test_fuse_colour_loops():
     otrans = Dynamo0p3OMPLoopTrans()
     rtrans = OMPParallelTrans()
     ftrans = DynamoLoopFuseTrans()
+    dtrans = DereferenceTrans()
+    # Turn-on creation of de-referencing routine PSy2
+    schedule, _ = dtrans.apply(schedule)
 
     # Colour each of the loops
     for child in schedule.children:

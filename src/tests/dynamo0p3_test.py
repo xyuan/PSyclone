@@ -338,6 +338,9 @@ def test_field():
     _, invoke_info = parse(os.path.join(BASE_PATH, "1_single_invoke.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn-on creation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
     output = (
         "  MODULE psy_single_invoke\n"
@@ -511,6 +514,10 @@ def test_field_fs():
     _, invoke_info = parse(os.path.join(BASE_PATH, "1.5_single_invoke_fs.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn-on creation of de-referencing routine
+    invoke.schedule.deref_routine = True
+
     generated_code = psy.gen
     output = (
         "  MODULE psy_single_invoke_fs\n"
@@ -771,6 +778,9 @@ def test_field_qr():
                                         "1.1_single_invoke_qr.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn-on creation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
     output = (
         "  MODULE psy_single_invoke\n"
@@ -1066,6 +1076,9 @@ def test_vector_field_2():
     _, invoke_info = parse(os.path.join(BASE_PATH, "8_vector_field_2.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn-on creation of de-referencing routine
+    invoke.schedule.deref_routine = True
     code = str(psy.gen)
     print code
     # all references to chi_proxy should be chi_proxy(1)
@@ -1139,6 +1152,9 @@ def test_operator():
     _, invoke_info = parse(os.path.join(BASE_PATH, "10_operator.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn-on creation of de-referencing routine
+    invoke.schedule.deref_routine = True
     code = str(psy.gen)
     print code
     assert "SUBROUTINE invoke_0_testkern_operator_type(mm_w0, chi, qr)" in code
@@ -1189,6 +1205,9 @@ def test_operator_nofield():
                                         "10.1_operator_nofield.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn-on creation of de-referencing routine
+    invoke.schedule.deref_routine = True
     code = str(psy.gen)
     print code
     assert "SUBROUTINE invoke_0_testkern_operator_nofield_type(mm_w2, chi, "\
@@ -1246,6 +1265,9 @@ def test_operator_orientation():
                                         "10.2_operator_orient.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn-on creation of de-referencing routine
+    invoke.schedule.deref_routine = True
     gen_str = str(psy.gen)
     print gen_str
     assert gen_str.find("SUBROUTINE invoke_0_testkern_operator"
@@ -1318,6 +1340,9 @@ def test_any_space_1():
     _, invoke_info = parse(os.path.join(BASE_PATH, "11_any_space.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn-on creation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
     print generated_code
     assert generated_code.find(
@@ -1412,6 +1437,10 @@ def test_any_space_2():
     _, invoke_info = parse(os.path.join(BASE_PATH, "11.1_any_space.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-on creation of de-referencing routine
+    schedule.deref_routine = True
     generated_code = str(psy.gen)
     print generated_code
     assert generated_code.find(
@@ -1479,6 +1508,9 @@ def test_kernel_specific():
     _, invoke_info = parse(os.path.join(BASE_PATH, "12_kernel_specific.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn-on creation of de-referencing routine
+    invoke.schedule.deref_routine = True
     code = str(psy.gen)
     print code
     assert code.find("USE enforce_bc_kernel_mod, ONLY: enforce_bc_code") != -1
@@ -1555,6 +1587,9 @@ def test_bc_kernel():
                                         "12.2_enforce_bc_kernel.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Turn-on creation of de-referencing routine
+    invoke.schedule.deref_routine = True
     generated_code = str(psy.gen)
     print generated_code
     assert generated_code.find(
@@ -1672,6 +1707,11 @@ def test_mkern_invoke_vec_fields():
                                         "4.2_multikernel_invokes.f90"),
                            api="dynamo0.3")
     psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    schedule = invoke.schedule
+    # Turn-on creation of de-referencing routine
+    schedule.deref_routine = True
+
     generated_code = str(psy.gen)
     print generated_code
     # 1st test for duplication of name vector-field declaration
