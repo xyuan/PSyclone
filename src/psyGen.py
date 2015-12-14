@@ -101,7 +101,6 @@ class PSy(object):
 
         self._name = invoke_info.name
         self._invokes = None
-        self.use_raw_arrays = True
 
     def __str__(self):
         return "PSy"
@@ -1288,18 +1287,12 @@ class Kern(Call):
                                  "{1} access".
                                  format(self.name, mapping["write"]))
 
-    def is_coloured(self, fspace=""):
+    def is_coloured(self):
         ''' Returns True if this kernel is called from within a coloured
-        loop over the specified function space. If function space is not
-        specified then the space of the coloured loop is ignored. If this
-        kernel does not have a parent Loop (e.g. because it is being
-        constructed by the stub generator) then we return False '''
+        loop  '''
         parent_loop = self.ancestor(Loop)
         if parent_loop and parent_loop.loop_type == "colour":
-            if fspace:
-                return fspace == parent_loop.field_space
-            else:
-                return True
+            return True
         return False
 
 

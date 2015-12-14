@@ -1616,7 +1616,7 @@ class DynKern(Kern):
         ''' Return the index into the dofmap on the supplied function
         space. If this space has been coloured then the indexing must
         use the colour map for that space. '''
-        if self.is_coloured(fspace):
+        if self.is_coloured() and fspace == self.ancestor(Loop).field_space:
             # If this kernel call is within a coloured loop that
             # is over the specified space then we must use the colour
             # map associated with that space for any dofmap/orientation
