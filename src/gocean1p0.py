@@ -341,19 +341,19 @@ class GOInvoke(Invoke):
             invoke_sub_psy2 = None
 
         # add the subroutine argument declarations for arrays
-        if len(self.unique_args_arrays) > 0:
+        if self.unique_args_arrays:
             my_decl_flds = TypeDeclGen(invoke_sub_psy1, datatype="r2d_field",
                                          intent="inout",
                                          entity_decls=self.unique_args_arrays)
             invoke_sub_psy1.add(my_decl_flds)
         # add the subroutine argument declarations for real scalars
-        if len(self.unique_args_rscalars) > 0:
+        if self.unique_args_rscalars:
             my_decl_rscalars = DeclGen(invoke_sub_psy1, datatype="REAL",
                                        intent="inout", kind="wp",
                                        entity_decls=self.unique_args_rscalars)
             invoke_sub_psy1.add(my_decl_rscalars)
         # add the subroutine argument declarations for integer scalars
-        if len(self.unique_args_iscalars) > 0:
+        if self.unique_args_iscalars:
             my_decl_iscalars = DeclGen(invoke_sub_psy1, datatype="INTEGER",
                                        intent="inout",
                                        entity_decls=self.unique_args_iscalars)
@@ -387,7 +387,8 @@ class GOInvoke(Invoke):
                                    entity_decls=[self.schedule.iloop_stop,
                                                  self.schedule.jloop_stop]))
             invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
-            invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, " Look-up loop bounds"))
+            invoke_sub_psy1.add(CommentGen(invoke_sub_psy1,
+                                           " Look-up loop bounds"))
             sim_domain = grid_arg.name + "%grid%simulation_domain%"
             invoke_sub_psy1.add(AssignGen(invoke_sub_psy1,
                                      lhs=self.schedule.iloop_stop,
@@ -411,10 +412,9 @@ class GOInvoke(Invoke):
                 # ordering when we created the subroutine itself
                 # (invoke_sub_psy2)
                 arg_list = array_bound_args[:]
-                for arg in self.unique_args_iscalars:
-                    arg_list.append(arg)
-                for arg in self.unique_args_rscalars:
-                    arg_list.append(arg)
+                arg_list.extend(self.unique_args_iscalars)
+                arg_list.extend(self.unique_args_rscalars)
+
                 for arg in self.unique_args_arrays:
                     arg_list.append(arg+"%data")
                 for arg in self.unique_grid_props:
@@ -431,7 +431,7 @@ class GOInvoke(Invoke):
                 invoke_sub_psy1.add(
                     CallGen(invoke_sub_psy1, self.name+"_arrays", arg_list))
 
-                if len(self.unique_args_arrays) > 0:
+                if self.unique_args_arrays:
                     my_decl_arrays = DeclGen(
                         invoke_sub_psy2,
                         datatype="REAL",
@@ -439,14 +439,14 @@ class GOInvoke(Invoke):
                         dimension="nx,ny",
                         entity_decls=self.unique_args_arrays)
                     invoke_sub_psy2.add(my_decl_arrays)
-                if len(self.unique_args_iscalars) > 0:
+                if self.unique_args_iscalars:
                     my_decl_iscalars = DeclGen(
                         invoke_sub_psy2,
                         datatype="INTEGER",
                         intent="inout",
                         entity_decls=self.unique_args_iscalars)
                     invoke_sub_psy2.add(my_decl_iscalars)
-                if len(self.unique_args_rscalars) > 0:
+                if self.unique_args_rscalars:
                     my_decl_rscalars = DeclGen(
                         invoke_sub_psy2,
                         datatype="REAL",
@@ -454,7 +454,7 @@ class GOInvoke(Invoke):
                         intent="inout",
                         entity_decls=self.unique_args_rscalars)
                     invoke_sub_psy2.add(my_decl_rscalars)
-                if len(self.unique_grid_props_rarrays) > 0:
+                if self.unique_grid_props_rarrays:
                     my_decl_rgprops = DeclGen(
                         invoke_sub_psy2,
                         datatype="REAL",
@@ -462,7 +462,7 @@ class GOInvoke(Invoke):
                         dimension="nx,ny",
                         entity_decls=self.unique_grid_props_rarrays)
                     invoke_sub_psy2.add(my_decl_rgprops)
-                if len(self.unique_grid_props_iarrays) > 0:
+                if self.unique_grid_props_iarrays:
                     my_decl_igprops = DeclGen(
                         invoke_sub_psy2,
                         datatype="INTEGER",
@@ -823,7 +823,7 @@ class GOLoop(Loop):
         # Walk down the tree looking for a kernel so that we can
         # look-up what index-offset convention we are to use
         go_kernels = self.walk(self.children, GOKern)
-        if len(go_kernels) == 0:
+        if not go_kernels:
             raise GenerationError("Internal error: cannot find the "
                                   "GOcean Kernel enclosed by this loop")
         index_offset = go_kernels[0].index_offset
