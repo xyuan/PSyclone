@@ -643,7 +643,7 @@ class DynInvoke(Invoke):
         objects. The first Kernel in the invoke is used to return the
         name. If no Kernel exist in this invoke an error is thrown. '''
         kern_calls = self.schedule.kern_calls()
-        if len(kern_calls) == 0:
+        if not kern_calls:
             raise GenerationError(
                 "ndf_name makes no sense if there are no kernel calls")
         return kern_calls[0].fs_descriptors.ndf_name(func_space)
@@ -655,7 +655,7 @@ class DynInvoke(Invoke):
         objects. The first Kernel in the invoke is used to return the
         name. If no Kernel exists in this invoke an error is thrown. '''
         kern_calls = self.schedule.kern_calls()
-        if len(kern_calls) == 0:
+        if not kern_calls:
             raise GenerationError(
                 "undf_name makes no sense if there are no kernel calls")
         return kern_calls[0].fs_descriptors.undf_name(func_space)
@@ -667,7 +667,7 @@ class DynInvoke(Invoke):
         objects. The first Kernel in the invoke is used to return the
         name. If no Kernel exist in this invoke an error is thrown. '''
         kern_calls = self.schedule.kern_calls()
-        if len(kern_calls) == 0:
+        if not kern_calls:
             raise GenerationError(
                 "dofmap_name makes no sense if there are no kernel calls")
         return kern_calls[0].fs_descriptors.map_name(func_space)

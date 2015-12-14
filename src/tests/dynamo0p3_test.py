@@ -290,7 +290,7 @@ def test_fsdesc_fs_not_in_argdesc():
 
 
 def test_dyninvoke_unique_args():
-    '''Test that an appropriate error is raised if the
+    '''Test that an appropriate error is raised if
     DynInvoke.unique_args is called with an invalid data type'''
     _, invoke_info = parse(os.path.join(BASE_PATH,
                                         "4.3_multikernel_invokes.f90"),
@@ -298,8 +298,23 @@ def test_dyninvoke_unique_args():
     psy = PSyFactory("dynamo0.3").create(invoke_info)
     invoke = psy.invokes.get('invoke_0')
     with pytest.raises(GenerationError):
-        invoke.unique_args('gh_broken')
+        _ = invoke.unique_args('gh_broken')
 
+
+def test_dyninvoke_dofmap_name():
+    ''' Test that an appropriate error is raised if
+    DynInvoke.dofmap_name is called when we have no kernels '''
+    _, invoke_info = parse(os.path.join(BASE_PATH,
+                                        "1_single_invoke.f90"),
+                           api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3").create(invoke_info)
+    invoke = psy.invokes.invoke_list[0]
+    # Delete the one and only kernel in this invoke
+    del invoke.schedule.children[0].children[0]
+    # Now attempt to request the name of a dofmap
+    with pytest.raises(GenerationError) as exc:
+        _ = invoke.dofmap_name('w3')
+    assert 'dofmap_name makes no sense if there are no kernel' in str(exc)
 
 def test_create_args():
     ''' Tests that a kernel argument of the wrong type is caught by
