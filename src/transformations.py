@@ -968,8 +968,8 @@ class GOConstLoopBoundsTrans(Transformation):
 
 
 class DereferenceTrans(Transformation):
-    '''Switch on (or off) the generation of the introduction of a
-    de-referencing routine into the PSy layer, e.g.:
+    '''Switch on (or off) the introduction of a de-referencing routine
+    into the PSy layer, e.g.:
 
     >>> from parse import parse
     >>> from psyGen import PSyFactory
@@ -991,19 +991,22 @@ class DereferenceTrans(Transformation):
     >>>
     >>> newsched.view()
 
-    By default PSyclone will generate a 'de-referencing' routine for
-    each invoke. The purpose of this routine is to 'unpack' any
-    Fortran derived types in order to get references to the arrays and
-    scalars that they contain. These references are then passed to a
-    second routine where they are declared in terms of Fortran
-    intrinsic types.  It is this second routine that then contains all
-    loops and kernel calls. If the de-referencing routine is
-    switched-off for an invoke then the routine containing loops and
-    kernel calls will also involve derived types. This can significantly
-    affect the optimisations that some Fortran compilers will be
-    prepared to apply.
-
-    '''
+    This transformation is treated as an optimisation and therefore it
+    is not performed by default. The standard PSy Layer for an Invoke
+    consists of a single Fortran subroutine. This routine contains the
+    loops and kernel calls but will also involve Fortran derived
+    types. (This is because it is passed Field objects by the
+    Algorithm Layer but must supply the Kernel(s) with arrays.) The
+    use of derived types can significantly affect the optimisations
+    that some Fortran compilers will be prepared to apply. This is
+    particularly acute when attempting to use OpenACC. Therefore, the
+    purpose of this transformation is to introduce a second,
+    'de-referencing' routine to the PSy Layer.  In this routine we
+    'unpack' any Fortran derived types in order to get references to
+    the arrays and scalars that they contain. These references are
+    then passed to a second routine where they are declared in terms
+    of Fortran intrinsic types.  It is this second routine that then
+    contains all loops and kernel calls. '''
     def __str__(self):
         return "Split each PSy-layer routine into two with the "\
             "introduction of a de-referencing routine"
