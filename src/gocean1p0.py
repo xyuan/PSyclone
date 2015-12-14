@@ -307,51 +307,57 @@ class GOInvoke(Invoke):
         from f2pygen import SubroutineGen, DeclGen, TypeDeclGen, CallGen,\
             CommentGen, AssignGen
 
-        # The arguments/variables for the extents of the arrays and
-        # the upper bounds of associated loops
-        array_bound_args = ["nx", "ny", "istop", "jstop"]
-
         # create the subroutine that will convert from Fortran derived
         # types to raw arrays
-        invoke_sub = SubroutineGen(parent, name=self.name,
+        invoke_sub_psy1 = SubroutineGen(parent, name=self.name,
                                    args=self.psy_unique_var_names)
-        parent.add(invoke_sub)
+        parent.add(invoke_sub_psy1)
+
+        # Whether or not we are creating a de-referencing routine
+        make_deref_routine = self._schedule.deref_routine
 
         # Create the subroutine that contains the middle, PSy layer. This
         # routine contains no references to Fortran derived types.
         # Therefore, if any of the kernels that are a part of this Invoke
         # require a grid property, that property must be passed down
         # here.
-        if self._schedule.deref_routine:
-            invoke_sub_arrays = SubroutineGen(parent,
+        if make_deref_routine:
+            # The arguments/variables for the extents of the arrays and
+            # the upper bounds of associated loops
+            array_bound_args = ["nx", "ny",
+                                self.schedule.iloop_stop,
+                                self.schedule.jloop_stop]
+
+
+            invoke_sub_psy2 = SubroutineGen(parent,
                                               name=self.name+"_arrays",
                                               args=array_bound_args+\
                                               self.unique_args_iscalars+\
                                               self.unique_args_rscalars+\
                                               self.unique_args_arrays+\
                                               self.unique_grid_props)
-            parent.add(invoke_sub_arrays)
+            parent.add(invoke_sub_psy2)
         else:
-            invoke_sub_arrays = None
+            invoke_sub_psy2 = None
 
         # add the subroutine argument declarations for arrays
         if len(self.unique_args_arrays) > 0:
-            my_decl_flds = TypeDeclGen(invoke_sub, datatype="r2d_field",
+            my_decl_flds = TypeDeclGen(invoke_sub_psy1, datatype="r2d_field",
                                          intent="inout",
                                          entity_decls=self.unique_args_arrays)
-            invoke_sub.add(my_decl_flds)
+            invoke_sub_psy1.add(my_decl_flds)
         # add the subroutine argument declarations for real scalars
         if len(self.unique_args_rscalars) > 0:
-            my_decl_rscalars = DeclGen(invoke_sub, datatype="REAL",
+            my_decl_rscalars = DeclGen(invoke_sub_psy1, datatype="REAL",
                                        intent="inout", kind="wp",
                                        entity_decls=self.unique_args_rscalars)
-            invoke_sub.add(my_decl_rscalars)
+            invoke_sub_psy1.add(my_decl_rscalars)
         # add the subroutine argument declarations for integer scalars
         if len(self.unique_args_iscalars) > 0:
-            my_decl_iscalars = DeclGen(invoke_sub, datatype="INTEGER",
+            my_decl_iscalars = DeclGen(invoke_sub_psy1, datatype="INTEGER",
                                        intent="inout",
                                        entity_decls=self.unique_args_iscalars)
-            invoke_sub.add(my_decl_iscalars)
+            invoke_sub_psy1.add(my_decl_iscalars)
 
         if self._schedule.const_loop_bounds and self.unique_args_arrays:
 
@@ -359,51 +365,51 @@ class GOInvoke(Invoke):
             # field extents and any properties of the grid
             grid_arg = self._find_grid_accessor()
 
-            if invoke_sub_arrays:
+            if make_deref_routine:
                 # Constant integer scalars that give the array extents and the
                 # upper limits to use in loops
                 # Declare in wrapper subroutine
-                my_decl_iscalars = DeclGen(invoke_sub, datatype="INTEGER",
+                my_decl_iscalars = DeclGen(invoke_sub_psy1, datatype="INTEGER",
                                            entity_decls=array_bound_args)
-                invoke_sub.add(my_decl_iscalars)
+                invoke_sub_psy1.add(my_decl_iscalars)
                 # Assign values for the array extents and upper loop limits
-                invoke_sub.add(CommentGen(invoke_sub, ""))
-                invoke_sub.add(
-                    CommentGen(invoke_sub, " Look-up array extents"))
-                invoke_sub.add(AssignGen(invoke_sub,
+                invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
+                invoke_sub_psy1.add(
+                    CommentGen(invoke_sub_psy1, " Look-up array extents"))
+                invoke_sub_psy1.add(AssignGen(invoke_sub_psy1,
                                          lhs="nx",
                                          rhs=grid_arg.name+"%grid%nx"))
-                invoke_sub.add(AssignGen(invoke_sub,
+                invoke_sub_psy1.add(AssignGen(invoke_sub_psy1,
                                          lhs="ny",
                                          rhs=grid_arg.name+"%grid%ny"))
 
-            invoke_sub.add(DeclGen(invoke_sub, datatype="INTEGER",
+            invoke_sub_psy1.add(DeclGen(invoke_sub_psy1, datatype="INTEGER",
                                    entity_decls=[self.schedule.iloop_stop,
                                                  self.schedule.jloop_stop]))
-            invoke_sub.add(CommentGen(invoke_sub, ""))
-            invoke_sub.add(CommentGen(invoke_sub, " Look-up loop bounds"))
+            invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
+            invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, " Look-up loop bounds"))
             sim_domain = grid_arg.name + "%grid%simulation_domain%"
-            invoke_sub.add(AssignGen(invoke_sub,
+            invoke_sub_psy1.add(AssignGen(invoke_sub_psy1,
                                      lhs=self.schedule.iloop_stop,
                                      rhs=sim_domain+"xstop"))
-            invoke_sub.add(AssignGen(invoke_sub,
+            invoke_sub_psy1.add(AssignGen(invoke_sub_psy1,
                                      lhs=self.schedule.jloop_stop,
                                      rhs=sim_domain+"ystop"))
-            invoke_sub.add(CommentGen(invoke_sub, ""))
+            invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
 
-            if invoke_sub_arrays:
+            if make_deref_routine:
                 # Declare the corresponding dummy arguments in the PSy routine
-                my_decl_iscalars = DeclGen(invoke_sub_arrays,
+                my_decl_iscalars = DeclGen(invoke_sub_psy2,
                                            datatype="INTEGER",
                                            intent="in",
                                            entity_decls=array_bound_args)
-                invoke_sub_arrays.add(my_decl_iscalars)
+                invoke_sub_psy2.add(my_decl_iscalars)
 
                 # Call the subroutine that uses only raw Fortran arrays
 
                 # Now generate the list of arguments being sure to match the
                 # ordering when we created the subroutine itself
-                # (invoke_sub_arrays)
+                # (invoke_sub_psy2)
                 arg_list = array_bound_args[:]
                 for arg in self.unique_args_iscalars:
                     arg_list.append(arg)
@@ -419,55 +425,57 @@ class GOInvoke(Invoke):
                         # an if(have array args){} and if we have array args
                         # then we must have one that we can use to look-up
                         # grid properties.
-                        raise GenerationError("We require a grid property but no "
-                                              "field object has been found from "
-                                              "which to obtain it.")
-                invoke_sub.add(CallGen(invoke_sub, self.name+"_arrays",
-                                       arg_list))
+                        raise GenerationError(
+                            "We require a grid property but no field object "
+                            "has been found from which to obtain it.")
+                invoke_sub_psy1.add(
+                    CallGen(invoke_sub_psy1, self.name+"_arrays", arg_list))
 
                 if len(self.unique_args_arrays) > 0:
-                    my_decl_arrays = DeclGen(invoke_sub_arrays,
-                                             datatype="REAL",
-                                             intent="inout", kind="wp",
-                                             dimension="nx,ny",
-                                             entity_decls=self.unique_args_arrays)
-                    invoke_sub_arrays.add(my_decl_arrays)
+                    my_decl_arrays = DeclGen(
+                        invoke_sub_psy2,
+                        datatype="REAL",
+                        intent="inout", kind="wp",
+                        dimension="nx,ny",
+                        entity_decls=self.unique_args_arrays)
+                    invoke_sub_psy2.add(my_decl_arrays)
                 if len(self.unique_args_iscalars) > 0:
                     my_decl_iscalars = DeclGen(
-                        invoke_sub_arrays,
+                        invoke_sub_psy2,
                         datatype="INTEGER",
                         intent="inout",
                         entity_decls=self.unique_args_iscalars)
-                    invoke_sub_arrays.add(my_decl_iscalars)
+                    invoke_sub_psy2.add(my_decl_iscalars)
                 if len(self.unique_args_rscalars) > 0:
                     my_decl_rscalars = DeclGen(
-                        invoke_sub_arrays,
+                        invoke_sub_psy2,
                         datatype="REAL",
                         kind="wp",
                         intent="inout",
                         entity_decls=self.unique_args_rscalars)
-                    invoke_sub_arrays.add(my_decl_rscalars)
+                    invoke_sub_psy2.add(my_decl_rscalars)
                 if len(self.unique_grid_props_rarrays) > 0:
                     my_decl_rgprops = DeclGen(
-                        invoke_sub_arrays,
+                        invoke_sub_psy2,
                         datatype="REAL",
                         intent="inout", kind="wp",
                         dimension="nx,ny",
                         entity_decls=self.unique_grid_props_rarrays)
-                    invoke_sub_arrays.add(my_decl_rgprops)
+                    invoke_sub_psy2.add(my_decl_rgprops)
                 if len(self.unique_grid_props_iarrays) > 0:
-                    my_decl_igprops = DeclGen(invoke_sub_arrays,
-                                              datatype="INTEGER",
-                                              intent="inout",
-                                              dimension="nx,ny",
-                                              entity_decls=self.unique_grid_props_iarrays)
-                    invoke_sub_arrays.add(my_decl_igprops)
+                    my_decl_igprops = DeclGen(
+                        invoke_sub_psy2,
+                        datatype="INTEGER",
+                        intent="inout",
+                        dimension="nx,ny",
+                        entity_decls=self.unique_grid_props_iarrays)
+                    invoke_sub_psy2.add(my_decl_igprops)
 
         # Finally, generate the code body of this subroutine
-        if invoke_sub_arrays:
-            self.schedule.gen_code(invoke_sub_arrays)
+        if make_deref_routine:
+            self.schedule.gen_code(invoke_sub_psy2)
         else:
-            self.schedule.gen_code(invoke_sub)
+            self.schedule.gen_code(invoke_sub_psy1)
 
 
 class GOSchedule(Schedule):
@@ -516,10 +524,12 @@ class GOSchedule(Schedule):
                 # loop.
                 inner_loop.iteration_space = gocall.iterates_over
                 outer_loop.iteration_space = inner_loop.iteration_space
-                inner_loop.field_space = gocall.arguments.iteration_space_arg().\
+                inner_loop.field_space = gocall.arguments.\
+                                         iteration_space_arg().\
                                          function_space
                 outer_loop.field_space = inner_loop.field_space
-                inner_loop.field_name = gocall.arguments.iteration_space_arg().\
+                inner_loop.field_name = gocall.arguments.\
+                                        iteration_space_arg().\
                                         name
                 outer_loop.field_name = inner_loop.field_name
 
