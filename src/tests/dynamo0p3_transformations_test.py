@@ -662,7 +662,7 @@ def test_omp_region_omp_do():
     expected = (
         "!$omp parallel default(shared), private(cell)\n"
         "      !$omp do schedule(static)\n"
-        "      DO cell=1,ncells\n" )
+        "      DO cell=1,ncells\n")
     assert expected in code
 
     # Repeat the test with the de-referencing routine switched off
@@ -716,7 +716,7 @@ def test_multi_kernel_single_omp_region():
         "map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
         "      END DO \n"
         "      !$omp end do\n"
-        "      !$omp end parallel\n" )
+        "      !$omp end parallel\n")
     assert expected in code
 
 
@@ -765,7 +765,7 @@ def test_multi_kernel_single_omp_region_no_deref():
         "ndf_w2, undf_w2, map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
         "      END DO \n"
         "      !$omp end do\n"
-        "      !$omp end parallel\n" )
+        "      !$omp end parallel\n")
     assert expected in code
 
 
@@ -844,7 +844,7 @@ def test_loop_fuse():
         "        CALL testkern_code(nlayers, f1_proxy, f2_proxy, m1_proxy, "
         "m2_proxy, ndf_w1, undf_w1, map_w1(:,cell), ndf_w2, undf_w2, "
         "map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
-        "      END DO \n" )
+        "      END DO \n")
     assert expected in gen
 
 
@@ -885,7 +885,7 @@ def test_loop_fuse_no_deref():
         "        CALL testkern_code(nlayers, f1_proxy%data, f2_proxy%data, "
         "m1_proxy%data, m2_proxy%data, ndf_w1, undf_w1, map_w1(:,cell), "
         "ndf_w2, undf_w2, map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
-        "      END DO \n" )
+        "      END DO \n")
     assert expected in gen
 
 
@@ -934,7 +934,7 @@ def test_loop_fuse_omp():
         "m2_proxy, ndf_w1, undf_w1, map_w1(:,cell), ndf_w2, undf_w2, "
         "map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
         "      END DO \n"
-        "      !$omp end parallel do\n" )
+        "      !$omp end parallel do\n")
     assert expected in code
 
 
@@ -982,7 +982,7 @@ def test_loop_fuse_omp_no_deref():
         "m1_proxy%data, m2_proxy%data, ndf_w1, undf_w1, map_w1(:,cell), "
         "ndf_w2, undf_w2, map_w2(:,cell), ndf_w3, undf_w3, map_w3(:,cell))\n"
         "      END DO \n"
-        "      !$omp end parallel do\n" )
+        "      !$omp end parallel do\n")
     assert expected in code
 
 
@@ -1035,16 +1035,24 @@ def test_fuse_colour_loops():
         "        !$omp parallel default(shared), private(cell)\n"
         "        !$omp do schedule(static)\n"
         "        DO cell=1,ncp_colour_w2(colour)\n"
-        "          CALL ru_code(nlayers, a_proxy, b_proxy, c_proxy, d_proxy_1, d_proxy_2, d_proxy_3, ndf_w2, undf_w2, map_w2(:,cmap_w2(colour, cell)), basis_w2, diff_basis_w2, ndf_w3, undf_w3, map_w3(:,cell), basis_w3, ndf_w0, undf_w0, map_w0(:,cell), basis_w0, diff_basis_w0, nqp_h, nqp_v, wh, wv)\n"
+        "          CALL ru_code(nlayers, a_proxy, b_proxy, c_proxy, "
+        "d_proxy_1, d_proxy_2, d_proxy_3, ndf_w2, undf_w2, "
+        "map_w2(:,cmap_w2(colour, cell)), basis_w2, diff_basis_w2, ndf_w3, "
+        "undf_w3, map_w3(:,cell), basis_w3, ndf_w0, undf_w0, map_w0(:,cell), "
+        "basis_w0, diff_basis_w0, nqp_h, nqp_v, wh, wv)\n"
         "        END DO \n"
         "        !$omp end do\n"
         "        !$omp do schedule(static)\n"
         "        DO cell=1,ncp_colour_w2(colour)\n"
-        "          CALL ru_code(nlayers, f_proxy, b_proxy, c_proxy, d_proxy_1, d_proxy_2, d_proxy_3, ndf_w2, undf_w2, map_w2(:,cmap_w2(colour, cell)), basis_w2, diff_basis_w2, ndf_w3, undf_w3, map_w3(:,cell), basis_w3, ndf_w0, undf_w0, map_w0(:,cell), basis_w0, diff_basis_w0, nqp_h, nqp_v, wh, wv)\n"
+        "          CALL ru_code(nlayers, f_proxy, b_proxy, c_proxy, "
+        "d_proxy_1, d_proxy_2, d_proxy_3, ndf_w2, undf_w2, "
+        "map_w2(:,cmap_w2(colour, cell)), basis_w2, diff_basis_w2, ndf_w3, "
+        "undf_w3, map_w3(:,cell), basis_w3, ndf_w0, undf_w0, map_w0(:,cell), "
+        "basis_w0, diff_basis_w0, nqp_h, nqp_v, wh, wv)\n"
         "        END DO \n"
         "        !$omp end do\n"
         "        !$omp end parallel\n"
-        "      END DO \n" )
+        "      END DO \n")
     assert expected in code
 
 
@@ -1120,7 +1128,7 @@ def test_fuse_colour_loops_no_deref():
         "        END DO \n"
         "        !$omp end do\n"
         "        !$omp end parallel\n"
-        "      END DO \n" )
+        "      END DO \n")
     assert expected in code
 
 

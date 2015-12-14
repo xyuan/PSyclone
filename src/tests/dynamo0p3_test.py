@@ -316,6 +316,7 @@ def test_dyninvoke_dofmap_name():
         _ = invoke.dofmap_name('w3')
     assert 'dofmap_name makes no sense if there are no kernel' in str(exc)
 
+
 def test_create_args():
     ''' Tests that a kernel argument of the wrong type is caught by
     the DynKern._create_arg_list method. '''

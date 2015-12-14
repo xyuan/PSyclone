@@ -1331,7 +1331,7 @@ def test_sw_offset_all_cf_points():
         "    END SUBROUTINE invoke_0_apply_bcs_f_arrays\n"
         "  END MODULE psy_single_invoke_test")
     print generated_code
-    assert expected_output in  generated_code
+    assert expected_output in generated_code
 
 
 def test_sw_offset_all_cf_points_no_deref():
@@ -1381,7 +1381,7 @@ def test_sw_offset_all_cf_points_no_deref():
         "    END SUBROUTINE invoke_0_apply_bcs_f\n"
         "  END MODULE psy_single_invoke_test")
     print generated_code
-    assert expected_output in  generated_code
+    assert expected_output in generated_code
 
 
 def test_sw_offset_ct_points():

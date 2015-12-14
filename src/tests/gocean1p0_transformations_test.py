@@ -60,7 +60,7 @@ def test_deref_default():
 
     '''
     psy, invoke = get_invoke("test11_different_iterates_over_"
-                           "one_invoke.f90", 0)
+                             "one_invoke.f90", 0)
     schedule = invoke.schedule
 
     # Check that the generated code contains a de-referencing
@@ -97,20 +97,20 @@ def test_deref_toggle_off():
     invoke.schedule = new_sched
     gen = str(psy.gen)
     print gen
-    expected = ( "! Look-up loop bounds\n"
-                 "      istop = p_fld%grid%simulation_domain%xstop\n"
-                 "      jstop = p_fld%grid%simulation_domain%ystop\n"
-                 "      !\n"
-                 "      DO j=2,jstop-1\n"
-                 "        DO i=2,istop\n"
-                 "          CALL compute_cv_code(i, j, cv_fld%data, "
-                 "p_fld%data, v_fld%data)\n"
-                 "        END DO \n"
-                 "      END DO \n"
-                 "      DO j=1,jstop+1\n"
-                 "        DO i=1,istop+1\n"
-                 "          CALL bc_ssh_code(i, j, ncycle, p_fld%data, "
-                 "p_fld%grid%tmask)\n" )
+    expected = ("! Look-up loop bounds\n"
+                "      istop = p_fld%grid%simulation_domain%xstop\n"
+                "      jstop = p_fld%grid%simulation_domain%ystop\n"
+                "      !\n"
+                "      DO j=2,jstop-1\n"
+                "        DO i=2,istop\n"
+                "          CALL compute_cv_code(i, j, cv_fld%data, "
+                "p_fld%data, v_fld%data)\n"
+                "        END DO \n"
+                "      END DO \n"
+                "      DO j=1,jstop+1\n"
+                "        DO i=1,istop+1\n"
+                "          CALL bc_ssh_code(i, j, ncycle, p_fld%data, "
+                "p_fld%grid%tmask)\n")
     assert expected in gen
 
 
