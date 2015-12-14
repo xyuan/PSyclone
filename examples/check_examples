@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# Dynamo API
 cd dynamo/eg1
 python runme.py
 python runme_openmp.py
@@ -15,16 +16,23 @@ cd dynamo/eg3
 python ../../../src/generator.py -s ./colouring_and_omp.py solver_mod.x90
 cd -
 
+# GOcean API
 cd gocean
 python runme.py
 python runme_openmp.py
 python runme_loop_fuse.py
 cd -
 
+# Transformations
 cd transformations/inline
 python module_inline_example.py
 cd -
 
+cd transformations/dereference
+python dereference_example.py
+cd -
+
+# Miscellaneous
 cd line_length
 python runme.py
 cd -
