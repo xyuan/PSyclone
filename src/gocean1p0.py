@@ -493,10 +493,15 @@ class GOSchedule(Schedule):
         # of configuration member variables here we may want
         # to create a a new ScheduleConfig object to manage them.
         self._const_loop_bounds = True
-        # Whether or not to generate a dereferencing routine as
-        # part of the PSy layer. This then allows the code containing
-        # the loops and kernel calls to deal only with intrinsic
-        # Fortran types.
+
+        # Whether or not to generate a dereferencing routine as part
+        # of the PSy layer. This then allows the code containing the
+        # loops and kernel calls to deal only with intrinsic Fortran
+        # types.  TODO we should call the init method of the base
+        # class and then we wouldn't have to define _deref_routine
+        # here. However, this routine has already been re-structured
+        # in ticket #111 so not doing it here. Once this code is
+        # merged with that from #111 we can remove this next line.
         self._deref_routine = False
 
         if self._const_loop_bounds:
@@ -592,12 +597,10 @@ class GOSchedule(Schedule):
                 "de-referencing routine is to be generated.\n")
         self._const_loop_bounds = obj
 
-    @property
-    def deref_routine(self):
-        return self._deref_routine
-
-    @deref_routine.setter
+    @Schedule.deref_routine.setter
     def deref_routine(self, obj):
+        ''' We override the base-class method because in GOcean we need
+        to check whether or not constant loop bounds are switched on '''
         if obj and not self._const_loop_bounds:
             raise GenerationError(
                 "Cannot generate a de-referencing routine in the PSy layer"

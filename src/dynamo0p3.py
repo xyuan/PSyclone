@@ -1403,25 +1403,7 @@ class DynSchedule(Schedule):
 
     def __init__(self, arg):
 
-        # Whether or not to generate a dereferencing routine as
-        # part of the PSy layer. This then allows the code containing
-        # the loops and kernel calls to deal only with intrinsic
-        # Fortran types.
-        self._deref_routine = False
-
         Schedule.__init__(self, DynLoop, DynInf, arg)
-
-    @property
-    def deref_routine(self):
-        ''' Returns True if a de-referencing routine will be generated
-        for this Schedule as part of the PSy Layer. '''
-        return self._deref_routine
-
-    @deref_routine.setter
-    def deref_routine(self, obj):
-        ''' Set whether or not to generate a de-referencing routine in the
-        PSy Layer for this Schedule '''
-        self._deref_routine = obj
 
 
 class DynLoop(Loop):
