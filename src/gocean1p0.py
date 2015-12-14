@@ -88,61 +88,35 @@ class GridProperty(object):
 
 # A dictionary giving the mapping from meta-data names for
 # properties of the grid to their names in the Fortran grid_type.
-GRID_PROPERTY_DICT = {"grid_area_t": GridProperty(name="area_t",
-                                                  rank=2,
-                                                  type="REAL",
-                                                  kind="wp"),
-                      "grid_area_u": GridProperty(name="area_u",
-                                                  rank=2,
-                                                  type="REAL",
-                                                  kind="wp"),
-                      "grid_area_v": GridProperty(name="area_v",
-                                                  rank=2,
-                                                  type="REAL",
-                                                  kind="wp"),
-                      "grid_mask_t": GridProperty(name="tmask",
-                                                  rank=2,
-                                                  type="INTEGER"),
-                      "grid_dx_t": GridProperty(name="dx_t",
-                                                rank=2,
-                                                type="REAL",
-                                                kind="wp"),
-                      "grid_dx_u": GridProperty(name="dx_u",
-                                                rank=2,
-                                                type="REAL",
-                                                kind="wp"),
-                      "grid_dx_v": GridProperty(name="dx_v",
-                                                rank=2,
-                                                type="REAL",
-                                                kind="wp"),
-                      "grid_dy_t": GridProperty(name="dy_t",
-                                                rank=2,
-                                                type="REAL",
-                                                kind="wp"),
-                      "grid_dy_u": GridProperty(name="dy_u",
-                                                rank=2,
-                                                type="REAL",
-                                                kind="wp"),
-                      "grid_dy_v": GridProperty(name="dy_v",
-                                                rank=2,
-                                                type="REAL",
-                                                kind="wp"),
-                      "grid_lat_u": GridProperty(name="gphiu",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_lat_v": GridProperty(name="gphiv",
-                                                 rank=2,
-                                                 type="REAL",
-                                                 kind="wp"),
-                      "grid_dx_const": GridProperty(name="dx",
-                                                    rank=2,
-                                                    type="REAL",
-                                                    kind="wp"),
-                      "grid_dy_const": GridProperty(name="dy",
-                                                    rank=2,
-                                                    type="REAL",
-                                                    kind="wp")}
+GRID_PROPERTY_DICT = {
+    "grid_area_t": GridProperty(
+        name="area_t", rank=2, type="REAL", kind="wp"),
+    "grid_area_u": GridProperty(
+        name="area_u", rank=2, type="REAL", kind="wp"),
+    "grid_area_v": GridProperty(
+        name="area_v", rank=2, type="REAL", kind="wp"),
+    "grid_mask_t": GridProperty(
+        name="tmask", rank=2, type="INTEGER"),
+    "grid_dx_t": GridProperty(
+        name="dx_t", rank=2, type="REAL", kind="wp"),
+    "grid_dx_u": GridProperty(
+        name="dx_u", rank=2, type="REAL", kind="wp"),
+    "grid_dx_v": GridProperty(
+        name="dx_v", rank=2, type="REAL", kind="wp"),
+    "grid_dy_t": GridProperty(
+        name="dy_t", rank=2, type="REAL", kind="wp"),
+    "grid_dy_u": GridProperty(
+        name="dy_u", rank=2, type="REAL", kind="wp"),
+    "grid_dy_v": GridProperty(
+        name="dy_v", rank=2, type="REAL", kind="wp"),
+    "grid_lat_u": GridProperty(
+        name="gphiu", rank=2, type="REAL", kind="wp"),
+    "grid_lat_v": GridProperty(
+        name="gphiv", rank=2, type="REAL", kind="wp"),
+    "grid_dx_const": GridProperty(
+        name="dx", rank=2, type="REAL", kind="wp"),
+    "grid_dy_const": GridProperty(
+        name="dy", rank=2, type="REAL", kind="wp")}
 
 
 class GOPSy(PSy):
