@@ -62,10 +62,11 @@ def test_colour_trans_declarations():
     assert "integer colour" in gen
     assert "integer, pointer :: cmap_w1(:,:), ncp_colour_w1(:)" in gen
     # and that we're passing them into the deref routine
-    assert "subroutine invoke_0_testkern_type_arrays(f1_proxy, f2_proxy, "
-    "m1_proxy, m2_proxy, ncells, nlayers, ndf_w1, undf_w1, map_w1, ndf_w2, "
-    "undf_w2, map_w2, ndf_w3, undf_w3, map_w3, ncolour_w1, ncp_colour_w1, "
-    "cmap_w1)" in gen
+    assert (
+        "subroutine invoke_0_testkern_type_arrays(f1_proxy, f2_proxy, "
+        "m1_proxy, m2_proxy, ncells, nlayers, ndf_w1, undf_w1, map_w1, "
+        "ndf_w2, undf_w2, map_w2, ndf_w3, undf_w3, map_w3, ncolour_w1, "
+        "ncp_colour_w1, cmap_w1)") in gen
     assert "integer, intent(in), dimension(ndf_w1,0:ncells) :: map_w1" in gen
 
 

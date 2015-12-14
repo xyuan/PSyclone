@@ -59,10 +59,8 @@ def test_deref_default():
     '''Check that we do not have a de-referencing routine by default
 
     '''
-    psy, invoke = get_invoke("test11_different_iterates_over_"
-                             "one_invoke.f90", 0)
-    schedule = invoke.schedule
-
+    psy, _ = get_invoke("test11_different_iterates_over_"
+                        "one_invoke.f90", 0)
     # Check that the generated code contains a de-referencing
     # routine by default
     gen = str(psy.gen)
@@ -118,8 +116,8 @@ def test_const_bounds_toggle_off():
     ''' Check that attempting to turn-off constant loop bounds raises
     an error if the de-referencing subroutine is to be generated (since
     the latter requires the former) '''
-    psy, invoke = get_invoke("test11_different_iterates_over_"
-                             "one_invoke.f90", 0)
+    _, invoke = get_invoke("test11_different_iterates_over_"
+                           "one_invoke.f90", 0)
     schedule = invoke.schedule
     cbtrans = GOConstLoopBoundsTrans()
     dtrans = DereferenceTrans()
@@ -133,8 +131,8 @@ def test_const_bounds_toggle_off():
 def test_deref_no_const_loop_bounds():
     ''' Check that an appropriate error is raised if we attempt to introduce
     a de-referencing routine when constant loop bounds are switched off '''
-    psy, invoke = get_invoke("test11_different_iterates_over_"
-                             "one_invoke.f90", 0)
+    _, invoke = get_invoke("test11_different_iterates_over_"
+                           "one_invoke.f90", 0)
     schedule = invoke.schedule
     cbtrans = GOConstLoopBoundsTrans()
     dtrans = DereferenceTrans()

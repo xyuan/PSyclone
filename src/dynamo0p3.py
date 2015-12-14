@@ -789,7 +789,6 @@ class DynInvoke(Invoke):
 
         fields = self.unique_args("gh_field")
         for fld in fields:
-            fname = fld.declaration_name
             psy2_args = []
             if fld.vector_size > 1:
                 for idx in range(1, fld.vector_size+1):
@@ -844,8 +843,8 @@ class DynInvoke(Invoke):
                                                " Initialise operator proxies"))
             invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
 
-            for op in op_list:
-                op_name = op.proxy_declaration_name
+            for ghop in op_list:
+                op_name = ghop.proxy_declaration_name
                 ncell3d_name = op_name + "_ncell_3d"
                 if make_deref_routine:
                     psy2_caller_args.append(op_name+"%ncell_3d")
@@ -856,8 +855,8 @@ class DynInvoke(Invoke):
                                                 entity_decls=[ncell3d_name]))
                 # Get the operator proxy
                 invoke_sub_psy1.add(AssignGen(invoke_sub_psy1,
-                                              lhs=op.proxy_name,
-                                              rhs=op.name+"%get_proxy()"))
+                                              lhs=ghop.proxy_name,
+                                              rhs=ghop.name+"%get_proxy()"))
                 stencil_name = op_name + "_local_stencil"
                 invoke_sub_psy1.add(
                     AssignGen(invoke_sub_psy1, lhs=stencil_name,
@@ -866,7 +865,7 @@ class DynInvoke(Invoke):
                     psy2_caller_args.append(stencil_name)
                     psy2_dummy_args.append(stencil_name)
 
-                fspace = op.function_space
+                fspace = ghop.function_space
                 name = self.ndf_name(fspace)
                 if make_deref_routine:
                     invoke_sub_psy2.add(DeclGen(invoke_sub_psy2,
@@ -1278,7 +1277,6 @@ class DynInvoke(Invoke):
             kern_func_space_name = enforce_bc_arg.function_space
             ndf_name = bc_kern.fs_descriptors.ndf_name(kern_func_space_name)
             undf_name = bc_kern.fs_descriptors.undf_name(kern_func_space_name)
-            map_name = bc_kern.fs_descriptors.map_name(kern_func_space_name)
             w2_proxy_name = reference_arg.proxy_name
 
             # Variable to hold the name of the function space. We supply
@@ -1415,10 +1413,14 @@ class DynSchedule(Schedule):
 
     @property
     def deref_routine(self):
+        ''' Returns True if a de-referencing routine will be generated
+        for this Schedule as part of the PSy Layer. '''
         return self._deref_routine
 
     @deref_routine.setter
     def deref_routine(self, obj):
+        ''' Set whether or not to generate a de-referencing routine in the
+        PSy Layer for this Schedule '''
         self._deref_routine = obj
 
 
@@ -1458,9 +1460,8 @@ class DynLoop(Loop):
         # Check that we're not within an OpenMP parallel region if
         # we are a loop over colours.
         if self._loop_type == "colours" and self.is_openmp_parallel():
-                    raise GenerationError("Cannot have a loop over "
-                                          "colours within an OpenMP "
-                                          "parallel region.")
+            raise GenerationError("Cannot have a loop over colours within an "
+                                  "OpenMP parallel region.")
         # Set-up loop bounds
         self._start = "1"
         if self._loop_type == "colours":
@@ -1977,8 +1978,8 @@ class DynKern(Kern):
     def gen_code(self, parent):
         ''' Generates dynamo version 0.3 specific psy code for a call to
             the dynamo kernel instance. '''
-        from f2pygen import CallGen, DeclGen, AssignGen, UseGen, CommentGen, \
-            IfThenGen, SubroutineGen
+        from f2pygen import CallGen, DeclGen, UseGen, CommentGen, \
+            IfThenGen
 
         # Correctness checking
         if self.is_coloured():
@@ -2014,13 +2015,6 @@ class DynKern(Kern):
         # 'bubbled-up' to the right point in the enclosing subroutine.
         parent.add(DeclGen(parent, datatype="integer",
                            entity_decls=["cell"]))
-
-        # create a maps_required logical which we can use to add in
-        # spacer comments if necessary
-        maps_required = False
-        for unique_fs in self.arguments.unique_fss:
-            if self.field_on_space(unique_fs):
-                maps_required = True
 
         # orientation arrays initialisation and their declarations is
         # handled in DynInvoke::gen_code
@@ -2307,6 +2301,7 @@ class DynKernelArgument(Argument):
 
     @property
     def descriptor(self):
+        ''' Returns the kernel-argument descriptor '''
         return self._arg
 
     @property
@@ -2373,6 +2368,7 @@ class DynKernelArgument(Argument):
 
     @property
     def intent(self):
+        ''' Returns the Fortran intent of this kernel argument '''
         if self.access == "gh_read":
             return "in"
         elif self.access == "gh_write":
