@@ -1336,9 +1336,9 @@ class DynInvoke(Invoke):
             # look-up this name in the DynKern::gen_code() method.
             boundary_dofs_name = \
                 self._name_space_manager.create_name(
-                            root_name="boundary_dofs_"+space_name,
-                            context="psy2",
-                            label="bc_dofs_name")
+                    root_name="boundary_dofs_"+space_name,
+                    context="psy2",
+                    label="bc_dofs_name")
             invoke_sub_psy1.add(UseGen(invoke_sub_psy1,
                                        name="function_space_mod",
                                        only=True, funcnames=[space_name]))
