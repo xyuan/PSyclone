@@ -877,9 +877,6 @@ def test_omp_region_commutes_with_loop_trans_bounds_lookup():
     dtrans = DereferenceTrans()
     newsched0, _ = dtrans.apply(schedule, deref=False)
     newsched, _ = cbtrans.apply(newsched0, const_bounds=False)
-    # Keep a copy of the original schedule
-    import copy
-    orig_schedule = copy.deepcopy(newsched)
 
     # Put an OpenMP do directive around each loop contained
     # in the schedule
@@ -900,10 +897,17 @@ def test_omp_region_commutes_with_loop_trans_bounds_lookup():
     loop_before_region_gen = str(psy.gen)
 
     # Now we do it again but in the opposite order...
+    # ...we re-generate the original schedule here rather than
+    # keeping a (deep) copy of it from earlier as that can
+    # cause resource problems.
+    psy, invoke = get_invoke("single_invoke_two_kernels.f90", 0)
+    schedule = invoke.schedule
+    # Turn-off constant loop bounds
+    cbtrans = GOConstLoopBoundsTrans()
+    schedule, _ = cbtrans.apply(schedule, const_bounds=False)
 
     # Put all of the loops in the schedule within a single
     # OpenMP region
-    schedule = orig_schedule
     ompr = OMPParallelTrans()
     omp_schedule, _ = ompr.apply(schedule.children)
 
