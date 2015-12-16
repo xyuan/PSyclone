@@ -1754,6 +1754,7 @@ def test_kernel_specific():
     # Turn-on creation of de-referencing routine
     invoke.schedule.deref_routine = True
     code = str(psy.gen)
+    print "Hello:"
     print code
     assert code.find("USE enforce_bc_kernel_mod, ONLY: enforce_bc_code") != -1
     assert code.find("USE function_space_mod, ONLY: w2") != -1
@@ -1766,9 +1767,8 @@ def test_kernel_specific():
         "f2_proxy%data, f3_proxy%ncell_3d, f3_proxy_local_stencil, ncells, "
         "nlayers, ndf_any_space_1, undf_any_space_1, map_any_space_1, fs, "
         "boundary_dofs_w2)") != -1
-    assert code.find('''IF (fs .eq. w2) THEN
-        boundary_dofs_w2 => f1_proxy%vspace%get_boundary_dofs()
-      END IF''') != -1
+    assert code.find("boundary_dofs_w2 => "
+                     "f1_proxy%vspace%get_boundary_dofs()\n") != -1
     assert code.find(
         "IF (fs .eq. w2) THEN\n"
         "          CALL enforce_bc_code(nlayers, f1_proxy, "
@@ -1805,9 +1805,7 @@ def test_kernel_specific_no_deref():
     assert str(generated_code).find(output3) != -1
     output4 = "fs = f1%which_function_space()"
     assert str(generated_code).find(output4) != -1
-    output5 = '''IF (fs .eq. w2) THEN
-        boundary_dofs_w2 => f1_proxy%vspace%get_boundary_dofs()
-      END IF'''
+    output5 = '''boundary_dofs_w2 => f1_proxy%vspace%get_boundary_dofs()'''
     assert str(generated_code).find(output5) != -1
     output6 = (
         "IF (fs .eq. w2) THEN\n"

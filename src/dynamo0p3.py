@@ -740,8 +740,7 @@ class DynInvoke(Invoke):
         routine then the Kernel calls are made from the PSy
         invocation routine. '''
         from f2pygen import SubroutineGen, TypeDeclGen, AssignGen, DeclGen, \
-            AllocateGen, DeallocateGen, CallGen, CommentGen, UseGen, \
-            IfThenGen
+            AllocateGen, DeallocateGen, CallGen, CommentGen, UseGen
         # create a namespace manager so we can avoid name clashes
         self._name_space_manager = NameSpaceFactory().create()
 
@@ -1359,16 +1358,20 @@ class DynInvoke(Invoke):
             invoke_sub_psy1.add(DeclGen(invoke_sub_psy1,
                                         datatype="integer",
                                         entity_decls=[fs_name]))
+            invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
+            invoke_sub_psy1.add(
+                CommentGen(invoke_sub_psy1,
+                           " Look-up quantities required for the "
+                           "application of boundary conditions"))
+            invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
             invoke_sub_psy1.add(AssignGen(invoke_sub_psy1, lhs=fs_name,
                                           rhs=reference_arg.name +
                                           "%which_function_space()"))
-            if_then = IfThenGen(invoke_sub_psy1, fs_name+" .eq. "+space_name)
-            invoke_sub_psy1.add(if_then)
-            if_then.add(AssignGen(if_then, pointer=True,
-                                  lhs=boundary_dofs_name,
-                                  rhs=w2_proxy_name +
-                                  "%vspace%get_boundary_dofs()"))
-            invoke_sub_psy1.add(CommentGen(invoke_sub_psy1, ""))
+
+            invoke_sub_psy1.add(AssignGen(invoke_sub_psy1, pointer=True,
+                                          lhs=boundary_dofs_name,
+                                          rhs=w2_proxy_name +
+                                          "%vspace%get_boundary_dofs()"))
 
         if make_deref_routine:
             # Create the call to the 2nd level of the PSy layer
