@@ -2978,7 +2978,7 @@ def test_stencil_metadata():
     ast = fpapi.parse(STENCIL_CODE, ignore_comments=False)
     metadata = DynKernMetadata(ast)
     stencil_descriptor_0 = metadata.arg_descriptors[0]
-    assert  stencil_descriptor_0.stencil == None
+    assert stencil_descriptor_0.stencil is None
     stencil_descriptor_1 = metadata.arg_descriptors[1]
     assert stencil_descriptor_1.stencil['type'] == 'cross'
     assert stencil_descriptor_1.stencil['extent'] == 1
