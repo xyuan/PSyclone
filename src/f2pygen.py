@@ -433,6 +433,25 @@ class ProgUnitGen(BaseGen):
         return end_index
 
 
+class ProgramGen(ProgUnitGen):
+    ''' create a fortran program '''
+    def __init__(self, name=None, implicitnone=None):
+        from fparser import api
+
+        code = '''\
+program vanilla
+end program vanilla
+'''
+        tree = api.parse(code, ignore_comments=False)
+        program = tree.content[0]
+        program.name = name
+        endprog = program.content[len(program.content)-1]
+        endprog.name = name
+        ProgUnitGen.__init__(self, None, program)
+        if implicitnone:
+            self.add(ImplicitNoneGen(self))
+
+
 class ModuleGen(ProgUnitGen):
     ''' create a fortran module '''
     def __init__(self, name="", contains=True, implicitnone=True):
