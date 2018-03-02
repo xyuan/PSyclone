@@ -14,7 +14,7 @@
 # * Redistributions in binary form must reproduce the above copyright notice,
 #   this list of conditions and the following disclaimer in the documentation
 #   and/or other materials provided with the distribution.
-
+#
 # * Neither the name of the copyright holder nor the names of its
 #   contributors may be used to endorse or promote products derived from
 #   this software without specific prior written permission.
@@ -66,6 +66,35 @@ def omni_frontend(fort_file, xml_file, mod_search_paths):
             "file {1}".format(str(err), fort_file)
         raise err
     print "omni_frontend: produced XCodeML file: {0}".format(xml_file)
+
+
+def run(fort_file, api, script_file):
+    '''
+    Runs CLAW and then PSyclone for the supplied Fortran file. This is the
+    entry point for using CLAW to process raw Fortran (i.e. when we do
+    not have a nice PSyKAl separation with an explicit Algorithm Layer).
+
+    :param str fort_file: the Fortran file to process
+    :param str api: which PSyclone API the target file is for
+    :param str script_file: location of the Python script called from CLAW
+    '''
+    import tempfile
+    from psyclone import claw_config
+    import psyclone.claw
+
+    mod_search_path = claw_config.OMNI_MODULES_PATH[api]
+
+    # Create a name for the output xml file
+    xml_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xml")
+
+    # Run OMNI to get temporary XML file
+    omni_frontend(fort_file, xml_file.name, [mod_search_path])
+
+    # Run the CLAW on the XML file. This call is SLOW because it
+    # requires the startup of a Java VM.
+    # TODO properly specify the name of the generated Fortran file
+    _run_claw([mod_search_path], xml_file.name,
+              "new.f90", script_file)
 
 
 def trans(kernel_list, script_file, naming_mode=None):

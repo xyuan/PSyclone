@@ -183,6 +183,9 @@ def main(args):
     parser.add_argument(
         '-nodm', '--no_dist_mem', dest='dist_mem', action='store_false',
         help='do not generate distributed memory code')
+    parser.add_argument(
+        '-claw', '--claw', dest='use_claw', action='store_true',
+        help='Use CLAW to generate and manipulate IR of supplied Fortran file')
     parser.set_defaults(dist_mem=DISTRIBUTED_MEMORY)
 
     args = parser.parse_args(args)
@@ -191,6 +194,19 @@ def main(args):
         print "Unsupported API '{0}' specified. Supported API's are "\
             "{1}.".format(args.api, SUPPORTEDAPIS)
         exit(1)
+
+    if args.use_claw:
+        if not args.script:
+            # If we're going to run CLAW then we need a script for it to
+            # call-back into PSyclone
+            print "-claw must be used in combination with -s <script>"
+            exit(1)
+        # We run CLAW which in turn invokes PSyclone on the IR it generates
+        from psyclone import claw
+        claw.run(args.filename, args.api, args.script)
+        # TODO this early return is just a WIP ARPDB
+        return
+
     try:
         alg, psy = generate(args.filename, api=args.api,
                             kernel_path=args.directory,
