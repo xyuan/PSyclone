@@ -1,5 +1,8 @@
 *.pyc
 *~
+# Files produced by Omni compiler
+*.s
+*.xmod
 .cache
 .coverage
 doc/_build
