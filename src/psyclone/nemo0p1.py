@@ -99,6 +99,10 @@ class NemoSchedule(Schedule):
                 self.addchild(NemoLoop(child, parent=self))
             else:
                 code_block_nodes.append(child)
+
+        # Finish any open code block
+        _add_code_block(self, code_block_nodes)
+
         return
 
 
@@ -114,16 +118,41 @@ class NemoLoop(Loop):
                       valid_loop_types=VALID_LOOP_TYPES)
         self._xml_node = xnode
 
+        # Get the loop variable
         vars = xnode.getElementsByTagName("Var")
         loop_var = text_value(vars[0])
 
+        # Identify the type of loop
         if loop_var in NEMO_LOOP_TYPE_MAPPING:
             self.loop_type = NEMO_LOOP_TYPE_MAPPING[loop_var]
         else:
             self.loop_type = "unknown"
 
+        # List of nodes we will use to create 'codeBlocks' that we don't
+        # attempt to understand
+        code_block_nodes = []
 
-class NEMOCodeBlock(Node):
+        # Find the body of the loop
+        loop_body = xnode.getElementsByTagName("body")[0]
+
+        for child in loop_body.childNodes:
+            if child.nodeType == child.TEXT_NODE:
+                # Skip over text nodes
+                continue
+            if child.tagName == "FdoStatement":
+                # The start of a loop is taken as the end of any exising
+                # code block so we create that now
+                _add_code_block(self, code_block_nodes)
+                self.addchild(NemoLoop(child, parent=self))
+            else:
+                print child.tagName
+                code_block_nodes.append(child)
+
+        # Finish any open code block
+        _add_code_block(self, code_block_nodes)
+
+
+class NemoCodeBlock(Node):
     '''
     Node representing some generic Fortran code that PSyclone
     does not attempt to manipulate
@@ -144,7 +173,7 @@ class NEMOCodeBlock(Node):
         :rtype: string
         '''
         from psyclone.psyGen import colored
-        return colored("NEMOCodeBlock", NEMO_SCHEDULE_COLOUR_MAP["CodeBlock"])
+        return colored("NemoCodeBlock", NEMO_SCHEDULE_COLOUR_MAP["CodeBlock"])
 
     def view(self, indent=0):
         ''' Print a representation of this node in the schedule '''
@@ -167,13 +196,13 @@ class NEMOCodeBlock(Node):
 
 
 def _add_code_block(parent, statements):
-    ''' Create a NEMOCodeBlock for the supplied list of statements
+    ''' Create a NemoCodeBlock for the supplied list of statements
     and then wipe the list of statements '''
 
     if not statements:
         return None
     
-    code_block = NEMOCodeBlock(statements,
+    code_block = NemoCodeBlock(statements,
                                parent=parent)
     parent.addchild(code_block)
     statements = []
