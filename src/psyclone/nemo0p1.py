@@ -40,7 +40,7 @@ representing a NEMO algorithm.
 '''
 
 from psyclone.psyGen import Schedule, Loop, Node, \
-    SCHEDULE_COLOUR_MAP as _BASE_CMAP
+    SCHEDULE_COLOUR_MAP as _BASE_CMAP, Kern
 
 # The base colour map doesn't have CodeBlock as that is currently
 # a NEMO-API-specific entity.
@@ -116,24 +116,32 @@ class NemoLoop(Loop):
         from psyclone.psyGen import Loop
         Loop.__init__(self, parent=parent,
                       valid_loop_types=VALID_LOOP_TYPES)
+        # Keep a ptr to the corresponding node in the XCodeML DOM
         self._xml_node = xnode
 
         # Get the loop variable
         vars = xnode.getElementsByTagName("Var")
-        loop_var = text_value(vars[0])
+        self._loop_var = text_value(vars[0])
 
         # Identify the type of loop
-        if loop_var in NEMO_LOOP_TYPE_MAPPING:
-            self.loop_type = NEMO_LOOP_TYPE_MAPPING[loop_var]
+        if self._loop_var in NEMO_LOOP_TYPE_MAPPING:
+            self.loop_type = NEMO_LOOP_TYPE_MAPPING[self._loop_var]
         else:
             self.loop_type = "unknown"
 
-        # List of nodes we will use to create 'codeBlocks' that we don't
+        # List of nodes we will use to create 'code blocks' that we don't
         # attempt to understand
         code_block_nodes = []
 
         # Find the body of the loop
         loop_body = xnode.getElementsByTagName("body")[0]
+
+        # Is this loop body a kernel?
+        if NemoKern.is_kernel(loop_body):
+            kern = NemoKern()
+            kern.load(loop_body, parent=self)
+            self.addchild(kern)
+            return
 
         for child in loop_body.childNodes:
             if child.nodeType == child.TEXT_NODE:
@@ -193,6 +201,208 @@ class NemoCodeBlock(Node):
             parent.add(statement)
         for entity in self._children:
             entity.gen_code(parent)
+
+
+class NemoKern(Kern):
+    ''' Stores information about NEMO kernels as extracted from the
+    NEMO code. '''
+    def __init__(self):
+        ''' Create an empty NemoKern object. The object is given state via
+        the load method '''
+        # Create those member variables required for testing and to keep
+        # pylint happy
+        self._children = []
+        self._name = ""
+        # The Loop object created by fparser2 which holds the AST for the
+        # section of code associated with this kernel
+        self._loop = None
+        # List of the loop variables, one for each loop
+        self._loop_vars = []
+        # A list of 2-tuples, one for each loop
+        self._loop_ranges = []
+        # List of variable names that must be thread-private
+        self._private_vars = None
+        # List of variable names that must be first-private because they
+        # are scalars with a first access of read
+        self._first_private_vars = None
+        # Whether or not this kernel performs a reduction
+        self._reduction = False
+        # List of variables that are shared between threads
+        self._shared_vars = None
+        # Type of kernel (2D, 3D..)
+        self._kernel_type = ""
+        self._body = []
+        # Will point to the corresponding node in the XCodeML dom
+        self._xml_node = None
+
+    @property
+    def type(self):
+        ''' Returns what type of kernel this is '''
+        return self._kernel_type
+
+    def load(self, node, parent=None):
+        '''
+        Populate the state of this NemoKern object
+
+        :param node:
+        :param parent:
+        '''
+        self._xml_node = node
+
+        if parent and isinstance(parent, NemoLoop):
+            self._load_from_loop(node, parent=parent)
+#        elif isinstance(loop, Assignment_Stmt):
+#            self._load_from_implicit_loop(loop, parent=parent)
+#        else:
+#            raise ParseError(
+#                "Internal error: expecting either "
+#                "Block_Nonlabel_Do_Construct or Assignment_Stmt but got "
+#                "{0}".format(str(type(loop))))
+
+    def _load_from_loop(self, loop, parent=None):
+        ''' Populate the state of this NemoKern object from the body
+        of a loop in the XCodeML IR '''
+
+        # Keep a pointer to the original loop in the AST
+        self._loop = loop
+
+        # TODO Loop variables and ranges are properties of NemoLoop(s) now?
+        #for ctrl in ctrls:
+        #    self._loop_vars.append(str(ctrl.items[0]))
+        #    self._loop_ranges.append( (str(ctrl.items[1][0]),
+        #                               str(ctrl.items[1][1])) )
+
+        # Now we find the content of this nested loop
+        #nested_loops = walk_ast(loop.content, [Block_Nonlabel_Do_Construct])
+        #inner_loop = nested_loops[-1]
+        #if not isinstance(inner_loop.content[0], Nonlabel_Do_Stmt):
+        #    raise ParseError("Internal error, expecting Nonlabel_Do_Stmt as "
+        #                     "first child of Block_Nonlabel_Do_Construct but "
+        #                     "got {0}".format(type(inner_loop.content[0])))
+
+        # TODO not sure I need to store the kernel body like this?
+        self._body = []
+        for content in loop.childNodes:
+            self._body.append(content)
+
+        # I could get this by walking back up the tree and counting how
+        # many NemoLoops I have as ancestors before I come across
+        # something that is not a loop...
+        #if len(self._loop_vars) == 2:
+        #    self._kernel_type = "2D"
+        #else:
+        #    self._kernel_type = "3D"
+
+        # Analyse the loop body to identify private and shared variables
+        # TODO how to do this in the absence of Habakkuk for XCodeML?
+        #from habakkuk.make_dag import dag_of_code_block
+        # Create a DAG of the kernel code block using Habakkuk
+        #kernel_dag = dag_of_code_block(inner_loop, "nemo_kernel")
+        #inputs = kernel_dag.input_nodes()
+        #outputs = kernel_dag.output_nodes()
+        #print "Kernel has {0} outputs: ".format(len(outputs)) + \
+        #    ",".join([node.variable.orig_name for node in outputs])
+        self._shared_vars = set()
+        self._first_private_vars = set()
+        self._private_vars = set()
+        # If there are scalar variables that are inputs to the DAG (other than
+        # the loop counters) then they must be declared first-private.
+        #for node in inputs:
+        #    if not node.node_type:
+        #        if node.name not in NEMO_LOOP_VARS:
+        #            self._first_private_vars.add(node.name)
+        #for key, node in kernel_dag._nodes.iteritems():
+        #    if node.node_type == "array_ref":
+        #        self._shared_vars.add(node.variable.orig_name)
+        #    elif not node.node_type:
+        #        self._private_vars.add(node.variable.orig_name)
+        #self._private_vars -= self._first_private_vars
+        #print "OpenMP shared vars: " + ",".join(self._shared_vars)
+        #print "OpenMP private vars: " + ",".join(self._private_vars)
+        #print "OpenMP first-private vars: " + \
+        #    ",".join(self._first_private_vars)
+        return
+    
+    def _load_from_implicit_loop(self, loop, parent=None):
+        ''' Populate the state of this NemoKern object from an fparser2
+        AST for an implicit loop (Fortran array syntax) '''
+        from fparser.Fortran2003 import Section_Subscript_List
+        # TODO implement this method!
+        self._kernel_type = "Implicit"
+        return
+
+    @property
+    def loop(self):
+        ''' Returns the Fortran2003 loop object associated with this kernel '''
+        return self._loop
+
+    def tofortran(self, tab='', isfix=False):
+        ''' Returns a string containing the Fortran representation of this
+        kernel '''
+        fort_lines = []
+        tablen = len(tab)
+        for idx, loop_var in enumerate(self._loop_vars):
+            fort_lines.append(tablen*" "+"DO {0} = {1}, {2}".
+                              format(loop_var,
+                                     self._loop_ranges[idx][0],
+                                     self._loop_ranges[idx][1]))
+            tablen += 2
+        for item in self._body:
+            fort_lines.append(item.tofortran(tab=tablen*" ", isfix=isfix))
+        for loop_var in self._loop_vars:
+            tablen -= 2
+            fort_lines.append(tablen*" "+"END DO")
+        return "\n".join(fort_lines)
+
+    def local_vars(self):
+        '''Return a list of the variable (names) that are local to this loop
+        (and must therefore be e.g. threadprivate if doing OpenMP)
+
+        '''
+        return []
+
+    def view(self, indent=0):
+        ''' Print representation of this node to stdout '''
+        print (self.indent(indent) + self.coloured_text + "[" +
+               self._kernel_type + "]")
+        for entity in self._children:
+            entity.view(indent=indent + 1)
+
+    def gen_code(self, parent):
+        '''
+        Create the node(s) in the f2pygen AST that will generate the code
+        for this object
+
+        :param parent: parent node in the f2pygen AST
+        :type parent: :py:class:`psyclone.f2pygen.DoGen`
+        '''
+        from psyclone.f2pygen2 import AssignGen
+        for item in self._body:
+            parent.add(AssignGen(item))
+
+    @staticmethod
+    def is_kernel(node):
+        '''
+        :param node: Node in XCodeML document to check
+        :type node: xml.minidom.XXXX
+        :returns: True if this node conforms to the rules for a kernel
+        :rtype: bool
+        '''
+        child_loops = node.getElementsByTagName("FdoStatement")
+        if child_loops:
+            # A kernel cannot contain other loops
+            return False
+
+        # A kernel cannot contain writes or reads
+        writes = node.getElementsByTagName("FwriteStatement")
+        if writes:
+            return False
+
+        reads = node.getElementsByTagName("FreadStatement")
+        if reads:
+            return False
+
+        return True
 
 
 def _add_code_block(parent, statements):
