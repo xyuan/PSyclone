@@ -39,7 +39,7 @@ functionality related to the construction of a Schedule
 representing a NEMO algorithm.
 '''
 
-from psyclone.psyGen import Schedule, Loop, Node, \
+from psyclone.psyGen import PSy, Invoke, Invokes, Schedule, Loop, Node, \
     SCHEDULE_COLOUR_MAP as _BASE_CMAP, Kern
 
 # The base colour map doesn't have CodeBlock as that is currently
@@ -60,13 +60,146 @@ NEMO_LOOP_TYPE_MAPPING = {"ji": "lon", "jj": "lat", "jk": "levels",
                           "jt": "tracers", "jn": "tracers"}
 
 
+class NemoInvoke(Invoke):
+
+    def __init__(self, ast, name):
+        '''
+        :param ast: The AST for the Fortran code to process
+        :type ast: :py:class:`xml.dom.minidom.Node`
+        :param str name: The name of the program unit
+        '''
+        self._schedule = None
+        self._name = name
+        self._psy_unique_vars = ["a_variable"]
+        # Store the whole DOM
+        self._ast = ast
+
+        # Find the section of the tree containing the execution part
+        # of the code
+        # TODO allow for empty subroutines!
+        body_nodes = ast.getElementsByTagName("body")
+        exe_part = body_nodes[0]
+
+        # Identify whether we have a Program, a Subroutine or a Function
+        #self._routine_type = get_routine_type(ast)
+
+        # Store the root of this routine's specification in the AST
+        #self._spec_part = get_child(ast, Specification_Part)
+
+        # We now walk through the AST and construct a Schedule view
+        # using objects from the nemo0p1 module.
+        self._schedule = NemoSchedule(exe_part)
+
+    def gen(self):
+        return str(self._ast)
+
+    def gen_code(self, parent):
+        '''
+        Generates the f2pygen AST for this invoke
+        :param parent: Parent of this node in the AST we are creating
+        :type parent: :py:class:`psyclone.f2pygen.ModuleGen`
+        '''
+        from psyclone.f2pygen2 import SubroutineGen, DeclGen, TypeDeclGen, \
+            CommentGen, AssignGen, ProgramGen
+
+        if not self._schedule:
+            return
+        
+        # create the parent routine
+        if self._routine_type == "subroutine":
+            top_node = SubroutineGen(parent, name=self.name,
+                                     args=self.psy_unique_var_names)
+        elif self._routine_type == "program":
+            top_node = ProgramGen(parent, self.name, implicitnone=False)
+
+        parent.add(top_node)
+        self.schedule.gen_code(top_node)
+
+    @property
+    def psy_unique_var_names(self):
+        return self._psy_unique_vars
+
+
+class NemoInvokes(Invokes):
+
+    def __init__(self, ast):
+        '''
+        :param ast:
+        :type ast: :py:class:`xml.dom.minidom.Dom`
+        '''        
+        self.invoke_map = {}
+        self.invoke_list = []
+        # Keep a pointer to the whole AST
+        self._ast = ast
+
+        root = ast.firstChild
+        # Find all the subroutines contained in the file
+        routines = root.getElementsByTagName("FfunctionDefinition")
+
+        # TODO Do we need to treat the main program as a special case?
+
+        # Analyse each routine we've found
+        idx = 0
+        for subroutine in routines:
+            # Get the name of this (sub)routine
+            sub_name = "invoke_{0}".format(idx) # TODO
+            idx += 1
+
+            my_invoke = NemoInvoke(subroutine, name=sub_name)
+            self.invoke_map[sub_name] = my_invoke
+            self.invoke_list.append(my_invoke)
+
+    def gen_code(self):
+        return self._ast
+
+
+class NemoPSy(PSy):
+    ''' The NEMO 0.1-specific PSy class. This creates a NEMO-specific
+        invokes object (which controls all the required invocation calls).
+        Also overrides the PSy gen method so that we generate GOcean-
+        specific PSy module code. '''
+    
+    def __init__(self, ast):
+
+        self._name = "Nemo-PSY"  # TODO use a meaningful name
+        self._invokes = NemoInvokes(ast)
+        
+    def inline(self, module):
+        # Override base-class method because we don't yet support it
+        pass
+
+    @property
+    def gen(self):
+        '''
+        Generate PSy code for the GOcean api v.1.0.
+
+        :rtype: ast
+
+        '''
+        from psyclone.f2pygen2 import ModuleGen, UseGen
+
+        # create an empty PSy layer module
+        psy_module = ModuleGen(self.name)
+        # include the kind_params module
+        psy_module.add(UseGen(psy_module, name="kind_params_mod"))
+        # include the field_mod module
+        psy_module.add(UseGen(psy_module, name="field_mod"))
+        # add in the subroutines for each invocation
+        #self.invokes.gen_code() #psy_module)
+        
+        # inline kernels where requested
+        #self.inline(psy_module)
+        return self.invokes.gen_code()
+
+
 class NemoSchedule(Schedule):
     '''
     '''
 
-    def __init__(self, xdom):
+    def __init__(self, xdom=None):
         '''
-        :param xdom: :py:class:`xml.dom.minidom.Document`
+        :param xdom: Node representing body of Fortran routine
+        :type xdom: :py:class:`xml.dom.minidom.Node`
         '''
         from psyclone.psyGen import Invoke
         Node.__init__(self)
@@ -74,21 +207,20 @@ class NemoSchedule(Schedule):
         # concept here
         self._invoke = Invoke(None, None, NemoSchedule)
 
-        root = xdom.firstChild
+        if not xdom:
+            # This Schedule will be populated by a subsequent call
+            # to load()
+            # TODO - implement load()
+            return
+
         # Store a pointer into the XML tree
         self._xml_node = xdom
-
-        # Find the beginning of the executable section
-        func_nodes = root.getElementsByTagName("FfunctionDefinition")
-        func = func_nodes[0]
-        body_nodes = func.getElementsByTagName("body")
-        body = body_nodes[0]
 
         # List of nodes we will use to create 'codeBlocks' that we don't
         # attempt to understand
         code_block_nodes = []
 
-        for child in body.childNodes:
+        for child in xdom.childNodes:
             if child.nodeType == child.TEXT_NODE:
                 # Skip over text nodes
                 continue

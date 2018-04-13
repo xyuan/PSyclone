@@ -215,6 +215,11 @@ class PSyFactory(object):
         elif self._type == "gocean1.0":
             from psyclone.gocean1p0 import GOPSy
             return GOPSy(invoke_info)
+        elif self._type == "nemo0.1":
+            from psyclone.nemo0p1 import NemoPSy
+            # For this API the 'invoke_info' is actually an XML DOM created
+            # by parsing the XCodeML/F representation.
+            return NemoPSy(invoke_info)
         else:
             raise GenerationError("PSyFactory: Internal Error: Unsupported "
                                   "api type '{0}' found. Should not be "
