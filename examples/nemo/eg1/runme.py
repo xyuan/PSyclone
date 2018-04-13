@@ -64,6 +64,7 @@ if __name__ == "__main__":
         sched = psy.invokes.get('invoke_0').schedule
 
         sched.view()
+        dom2 = psy.gen
 
         # Apply a transformation to the Schedule
         for node in sched.children:
@@ -71,3 +72,5 @@ if __name__ == "__main__":
                 omptrans.apply(node)
 
         sched.view()
+        dom3 = psy.gen
+        print dom3.toxml()
