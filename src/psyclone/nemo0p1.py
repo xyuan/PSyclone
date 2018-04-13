@@ -54,7 +54,8 @@ NEMO_LOOP_VARS = ["ji", "jj", "jk"]
 # The valid types of loop.
 VALID_LOOP_TYPES = ["lon", "lat", "levels", "tracers"]
 
-# Mapping from loop variable to loop type
+# Mapping from loop variable to loop type. This relies upong the NEMO
+# coding conventions being adhered to.
 NEMO_LOOP_TYPE_MAPPING = {"ji": "lon", "jj": "lat", "jk": "levels",
                           "jt": "tracers", "jn": "tracers"}
 

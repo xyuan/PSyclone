@@ -39,19 +39,32 @@ if __name__ == "__main__":
     import sys
     from argparse import ArgumentParser
     from xml.dom.minidom import parse
-    from psyclone.nemo0p1 import NemoSchedule
+    from psyclone.nemo0p1 import NemoSchedule, NemoLoop
+    from psyclone.transformations import OMPParallelLoopTrans
+
     parser = ArgumentParser(
         description="Convert XcodeML/Fortran into XcodeML/C")
     parser.add_argument("files", metavar="input_file", type=str, nargs="+",
-                        help="Name of file(s) to convert")
+                        help="Name of XCodeML/F file(s) to convert")
     result = parser.parse_args(sys.argv[1:])
+
+    omptrans = OMPParallelLoopTrans()
 
     for infile in result.files:
         if not os.path.isfile(infile):
             print "Cannot find input file '{0}' - skipping".format(file)
             continue
+        # Parse the supplied XCodeML/F file
         dom = parse(infile)
 
+        # Use the resulting DOM to create a Schedule
         sched = NemoSchedule(dom)
+
+        sched.view()
+
+        # Apply a transformation to the Schedule
+        for node in sched.children:
+            if isinstance(node, NemoLoop) and node.loop_type == 'levels':
+                omptrans.apply(node)
 
         sched.view()
