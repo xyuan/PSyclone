@@ -39,6 +39,7 @@ if __name__ == "__main__":
     import sys
     from argparse import ArgumentParser
     from xml.dom.minidom import parse
+    from psyclone.psyGen import PSyFactory
     from psyclone.nemo0p1 import NemoSchedule, NemoLoop
     from psyclone.transformations import OMPParallelLoopTrans
 
@@ -57,8 +58,10 @@ if __name__ == "__main__":
         # Parse the supplied XCodeML/F file
         dom = parse(infile)
 
-        # Use the resulting DOM to create a Schedule
-        sched = NemoSchedule(dom)
+        # Use the resulting DOM to create our psy object
+        psy = PSyFactory("nemo0.1").create(dom)
+
+        sched = psy.invokes.get('invoke_0').schedule
 
         sched.view()
 
