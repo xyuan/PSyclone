@@ -88,32 +88,19 @@ class NemoInvoke(Invoke):
 
         # We now walk through the AST and construct a Schedule view
         # using objects from the nemo0p1 module.
-        self._schedule = NemoSchedule(exe_part)
+        self._schedule = NemoSchedule(self, exe_part)
 
     def gen(self):
         return str(self._ast)
 
-    def gen_code(self, parent):
+    def gen_xml(self):
         '''
-        Generates the f2pygen AST for this invoke
-        :param parent: Parent of this node in the AST we are creating
-        :type parent: :py:class:`psyclone.f2pygen.ModuleGen`
+        Generates the updated DOM for this invoke
         '''
-        from psyclone.f2pygen2 import SubroutineGen, DeclGen, TypeDeclGen, \
-            CommentGen, AssignGen, ProgramGen
-
         if not self._schedule:
             return
-        
-        # create the parent routine
-        if self._routine_type == "subroutine":
-            top_node = SubroutineGen(parent, name=self.name,
-                                     args=self.psy_unique_var_names)
-        elif self._routine_type == "program":
-            top_node = ProgramGen(parent, self.name, implicitnone=False)
 
-        parent.add(top_node)
-        self.schedule.gen_code(top_node)
+        self.schedule.gen_xml()
 
     @property
     def psy_unique_var_names(self):
@@ -149,8 +136,12 @@ class NemoInvokes(Invokes):
             self.invoke_map[sub_name] = my_invoke
             self.invoke_list.append(my_invoke)
 
-    def gen_code(self):
-        return self._ast
+    def gen_xml(self):
+        '''
+        Generate the current XML DOM
+        '''
+        for invoke in self.invoke_list:
+            invoke.gen_xml()
 
 
 class NemoPSy(PSy):
@@ -162,6 +153,7 @@ class NemoPSy(PSy):
     def __init__(self, ast):
 
         self._name = "Nemo-PSY"  # TODO use a meaningful name
+        self._ast = ast  # The XML DOM for this PSy object
         self._invokes = NemoInvokes(ast)
         
     def inline(self, module):
@@ -171,41 +163,34 @@ class NemoPSy(PSy):
     @property
     def gen(self):
         '''
-        Generate PSy code for the GOcean api v.1.0.
+        Generate PSy code for the NEMO api v.1.0.
 
         :rtype: ast
 
         '''
-        from psyclone.f2pygen2 import ModuleGen, UseGen
+        # We don't need to create anything here because the original
+        # AST (the XML DOM) already contains the full definition of
+        # the parent module
 
-        # create an empty PSy layer module
-        psy_module = ModuleGen(self.name)
-        # include the kind_params module
-        psy_module.add(UseGen(psy_module, name="kind_params_mod"))
-        # include the field_mod module
-        psy_module.add(UseGen(psy_module, name="field_mod"))
-        # add in the subroutines for each invocation
-        #self.invokes.gen_code() #psy_module)
-        
-        # inline kernels where requested
-        #self.inline(psy_module)
-        return self.invokes.gen_code()
+        # In contrast to all of the other APIs, we call gen_xml() rather
+        # than gen_code().
+        return self.invokes.gen_xml()
 
 
 class NemoSchedule(Schedule):
     '''
     '''
 
-    def __init__(self, xdom=None):
+    def __init__(self, invoke, xdom=None):
         '''
+        :param invoke: the Invoke to which this Schedule belongs
+        :type invoke: :py:class:`psyclone.nemo0p1.NemoInvoke`
         :param xdom: Node representing body of Fortran routine
         :type xdom: :py:class:`xml.dom.minidom.Node`
         '''
-        from psyclone.psyGen import Invoke
         Node.__init__(self)
-        # TODO this is a fake Invoke as we don't have that
-        # concept here
-        self._invoke = Invoke(None, None, NemoSchedule)
+
+        self._invoke = invoke
 
         if not xdom:
             # This Schedule will be populated by a subsequent call
@@ -237,6 +222,13 @@ class NemoSchedule(Schedule):
         _add_code_block(self, code_block_nodes)
 
         return
+
+    def gen_xml(self):
+        '''
+        Generate the updated DOM for this Schedule
+        '''
+        for child in self.children:
+            child.gen_xml()
 
 
 class NemoLoop(Loop):
@@ -292,6 +284,9 @@ class NemoLoop(Loop):
         # Finish any open code block
         _add_code_block(self, code_block_nodes)
 
+    def gen_xml(self):
+        return
+
 
 class NemoCodeBlock(Node):
     '''
@@ -334,6 +329,11 @@ class NemoCodeBlock(Node):
             parent.add(statement)
         for entity in self._children:
             entity.gen_code(parent)
+
+    def gen_xml(self):
+        # Don't have to take any action for a code block since we leave
+        # its content unchanged
+        return
 
 
 class NemoKern(Kern):
