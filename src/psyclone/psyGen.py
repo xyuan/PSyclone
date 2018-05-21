@@ -1645,6 +1645,31 @@ class OMPParallelDoDirective(OMPParallelDirective, OMPDoDirective):
         parent.add(DirectiveGen(parent, "omp", "end", "parallel do", ""),
                    position=["after", position])
 
+    def gen_xml(self):
+        '''
+        Generate the XCodeML/F representation of this node.
+        :param parent: Parent of this node in the XML DOM
+        :type parent: :py:class:`xml.dom.minidom.Node`
+        '''
+        # TODO implement me!
+        # We must modify the existing DOM to add in a CLAW directive
+
+        # Find the Schedule to which we belong
+        parent = self._parent
+        while not isinstance(parent, Schedule):
+            parent = parent._parent
+        # Now we have the Schedule we can get the DOM from the Invoke
+        dom = parent.invoke._ast.ownerDocument
+        # Create the new element in the DOM
+        # TODO what does CLAW need here?
+        new = dom.createElement("OMPParallelDoDirectiveHere")
+        # The child of this node is the Loop to which the directive
+        # must be applied
+        xnode = self.children[0]._xml_node.parentNode
+        # Insert the new element in the correct location in the DOM
+        xnode.insertBefore(new, self.children[0]._xml_node)
+        return
+
 
 class GlobalSum(Node):
     ''' Generic Global Sum class which can be added to and
