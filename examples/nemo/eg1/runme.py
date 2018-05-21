@@ -33,6 +33,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 # -----------------------------------------------------------------------------
 # Author A. R. Porter, STFC Daresbury Laboratory
+from __future__ import print_function
 
 if __name__ == "__main__":
     import os
@@ -53,7 +54,7 @@ if __name__ == "__main__":
 
     for infile in result.files:
         if not os.path.isfile(infile):
-            print "Cannot find input file '{0}' - skipping".format(file)
+            print("Cannot find input file '{0}' - skipping".format(file))
             continue
         # Parse the supplied XCodeML/F file
         dom = parse(infile)
@@ -73,4 +74,10 @@ if __name__ == "__main__":
 
         sched.view()
         dom3 = psy.gen
-        print dom3.toxml()
+
+        # Write the XML to file so we can process it with CLAW
+        xml = dom3.toxml()
+        with open("new.xml", "w") as xmlfile:
+            xmlfile.write(xml)
+
+        print("Transformed XML written to new.xml")

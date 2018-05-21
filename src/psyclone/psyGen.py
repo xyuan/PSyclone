@@ -1602,6 +1602,8 @@ class OMPParallelDoDirective(OMPParallelDirective, OMPDoDirective):
                                 children=children,
                                 parent=parent,
                                 omp_schedule=omp_schedule)
+        # We don't actually modify the DOM until gen_xml() is called
+        self._xml_node = None
 
     @property
     def dag_name(self):
@@ -1653,6 +1655,10 @@ class OMPParallelDoDirective(OMPParallelDirective, OMPDoDirective):
         # We must modify the existing DOM to add in an OMP pragma
         # TODO Ideally we would do this with a CLAW directive
 
+        # Check that we haven't already been called
+        if self._xml_node:
+            return
+
         # Find the Schedule to which we belong
         parent = self._parent
         while not isinstance(parent, Schedule):
@@ -1665,6 +1671,7 @@ class OMPParallelDoDirective(OMPParallelDirective, OMPDoDirective):
         text = dom.createTextNode("omp parallel do default(shared), "
                                   "schedule({0})".format(self._omp_schedule))
         pragma.appendChild(text)
+        self._xml_node = pragma
         # The child of this node is the Loop to which the directive
         # must be applied
         loop_xml = self.children[0]._xml_node
