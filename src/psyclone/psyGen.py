@@ -1647,12 +1647,11 @@ class OMPParallelDoDirective(OMPParallelDirective, OMPDoDirective):
 
     def gen_xml(self):
         '''
-        Generate the XCodeML/F representation of this node.
-        :param parent: Parent of this node in the XML DOM
-        :type parent: :py:class:`xml.dom.minidom.Node`
+        Generate the XCodeML/F representation of this node and insert it
+        into the DOM.
         '''
-        # TODO implement me!
-        # We must modify the existing DOM to add in a CLAW directive
+        # We must modify the existing DOM to add in an OMP pragma
+        # TODO Ideally we would do this with a CLAW directive
 
         # Find the Schedule to which we belong
         parent = self._parent
@@ -1662,12 +1661,24 @@ class OMPParallelDoDirective(OMPParallelDirective, OMPDoDirective):
         dom = parent.invoke._ast.ownerDocument
         # Create the new element in the DOM
         # TODO what does CLAW need here?
-        new = dom.createElement("OMPParallelDoDirectiveHere")
+        pragma = dom.createElement("FpragmaStatement")
+        text = dom.createTextNode("omp parallel do default(shared), "
+                                  "schedule({0})".format(self._omp_schedule))
+        pragma.appendChild(text)
         # The child of this node is the Loop to which the directive
         # must be applied
-        xnode = self.children[0]._xml_node.parentNode
+        loop_xml = self.children[0]._xml_node
+        xnode = loop_xml.parentNode
         # Insert the new element in the correct location in the DOM
-        xnode.insertBefore(new, self.children[0]._xml_node)
+        xnode.insertBefore(pragma, loop_xml)
+        # Add 'end parallel do' if doing raw OMP directives
+        pragma = dom.createElement("FpragmaStatement")
+        text = dom.createTextNode("omp end parallel do")
+        pragma.appendChild(text)
+        if loop_xml.nextSibling:
+            xnode.insertBefore(pragma, loop_xml.nextSibling)
+        else:
+            xnode.appendChild(pragma)
         return
 
 
