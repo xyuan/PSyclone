@@ -142,6 +142,7 @@ class NemoInvokes(Invokes):
         '''
         for invoke in self.invoke_list:
             invoke.gen_xml()
+        return self._ast
 
 
 class NemoPSy(PSy):
