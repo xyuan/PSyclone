@@ -322,15 +322,6 @@ class NemoCodeBlock(Node):
     def __str__(self):
         return "CodeBlock[{0} statements]".format(len(self._statements))
 
-    def gen_code(self, parent):
-        ''' Convert this code block back to Fortran '''
-        for statement in self._statements:
-            # TODO each statement is an item from the fparser2 AST but
-            # parent.add expects an f2pygen object.
-            parent.add(statement)
-        for entity in self._children:
-            entity.gen_code(parent)
-
     def gen_xml(self):
         # Don't have to take any action for a code block since we leave
         # its content unchanged
