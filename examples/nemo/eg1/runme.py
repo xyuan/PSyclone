@@ -45,7 +45,7 @@ if __name__ == "__main__":
     from psyclone.transformations import OMPParallelLoopTrans
 
     parser = ArgumentParser(
-        description="Convert XcodeML/Fortran into XcodeML/C")
+        description="Transform XcodeML/Fortran and convert back to Fortran")
     parser.add_argument("files", metavar="input_file", type=str, nargs="+",
                         help="Name of XCodeML/F file(s) to convert")
     result = parser.parse_args(sys.argv[1:])
@@ -67,17 +67,37 @@ if __name__ == "__main__":
         sched.view()
         dom2 = psy.gen
 
-        # Apply a transformation to the Schedule
-        for node in sched.children:
-            if isinstance(node, NemoLoop) and node.loop_type == 'levels':
-                omptrans.apply(node)
+        # Find all loops in the Schedule
+        loops = sched.walk(sched.children, NemoLoop)
+
+        # Apply a transformation to every loop over levels
+        for loop in loops:
+            if loop.loop_type == 'levels':
+                omptrans.apply(loop)
 
         sched.view()
+        # Generate the new XCodeML/F from the transformed AST
         dom3 = psy.gen
 
         # Write the XML to file so we can process it with CLAW
         xml = dom3.toxml()
-        with open("new.xml", "w") as xmlfile:
-            xmlfile.write(xml)
+        import tempfile
+        tfile = tempfile.NamedTemporaryFile(mode='w', suffix='xml',
+                                            delete=False)
+        tfile.write(xml)
+        tfile.close()
 
-        print("Transformed XML written to new.xml")
+        # Run the OMNI back-end on the XML
+        import subprocess
+        arg_list = ['F_Back', '-l', tfile.name, '-o', 'new.f90']
+        try:
+            build = subprocess.Popen(arg_list,
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT)
+            (output, error) = build.communicate()
+        except OSError as err:
+            print("Failed to run: {0}: ".format(" ".join(arg_list)))
+            print("Error was: ", str(err))
+            raise Exception(str(err))
+
+        print("Transformed Fortran written to new.f90")
