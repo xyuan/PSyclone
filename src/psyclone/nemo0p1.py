@@ -210,7 +210,6 @@ class NemoSchedule(Schedule):
             if child.nodeType == child.TEXT_NODE:
                 # Skip over text nodes
                 continue
-#child.nodeType == child.ELEMENT_NODE and \
             if child.tagName == "FdoStatement":
                 # The start of a loop is taken as the end of any exising
                 # code block so we create that now
@@ -286,7 +285,10 @@ class NemoLoop(Loop):
         _add_code_block(self, code_block_nodes)
 
     def gen_xml(self):
-        return
+        '''
+        '''
+        for child in self.children:
+            child.gen_xml()
 
 
 class NemoCodeBlock(Node):
@@ -504,6 +506,11 @@ class NemoKern(Kern):
         from psyclone.f2pygen2 import AssignGen
         for item in self._body:
             parent.add(AssignGen(item))
+
+    def gen_xml(self):
+        # Don't have to take any action for a code block since we leave
+        # its content unchanged and it can't have any children.
+        return
 
     @staticmethod
     def is_kernel(node):
