@@ -257,6 +257,26 @@ class NemoLoop(Loop):
         else:
             self.loop_type = "unknown"
 
+        # Get the loop limits
+        lower = xnode.getElementsByTagName("lowerBound")[0]
+        node = first_nontext_child(lower)
+        if node.tagName in ["Var", "FintConstant"]:
+            self._start = text_value(node)
+        else:
+            pass  # TODO support expressions
+        upper = xnode.getElementsByTagName("upperBound")[0]
+        node = first_nontext_child(lower)
+        if node.tagName in ["Var", "FintConstant"]:
+            self._stop = text_value(node)
+        else:
+            pass  # TODO support expressions
+        step = xnode.getElementsByTagName("step")[0]
+        node = first_nontext_child(step)
+        if node.tagName in ["Var", "FintConstant"]:
+            self._step = text_value(node)
+        else:
+            pass  # TODO support expressions
+
         # List of nodes we will use to create 'code blocks' that we don't
         # attempt to understand
         code_block_nodes = []
@@ -575,6 +595,20 @@ def has_nontext_children(node):
         if child.nodeType == node.ELEMENT_NODE:
             return True
     return False
+
+
+def first_nontext_child(node):
+    '''
+    Returns the first non-text child of the supplied node.
+    :param node: node in XML document
+    :type node: :py:class:`xml.dom.minidom.Node`
+    :returns: First non-text child node
+    :rtype: :py:class:`xml.dom.minidom.Node` or None
+    '''
+    for child in node.childNodes:
+        if child.nodeType == node.ELEMENT_NODE:
+            return child
+    return None
 
 
 def text_value(node):
