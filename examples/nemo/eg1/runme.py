@@ -128,7 +128,6 @@ if __name__ == "__main__":
         sched = psy.invokes.get('invoke_0').schedule
 
         sched.view()
-        dom2 = psy.gen
 
         # Find all loops in the Schedule
         loops = sched.walk(sched.children, NemoLoop)
