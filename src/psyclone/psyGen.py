@@ -1668,8 +1668,10 @@ class OMPParallelDoDirective(OMPParallelDirective, OMPDoDirective):
         # Create the new element in the DOM
         # TODO what does CLAW need here?
         pragma = dom.createElement("FpragmaStatement")
-        text = dom.createTextNode("omp parallel do default(shared), "
-                                  "schedule({0})".format(self._omp_schedule))
+        text = dom.createTextNode(
+            "omp parallel do default(shared), private({0}), "
+            "schedule({1})".format(",".join(self._get_private_list()),
+                                   self._omp_schedule))
         pragma.appendChild(text)
         self._xml_node = pragma
         # The child of this node is the Loop to which the directive
