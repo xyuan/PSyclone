@@ -147,12 +147,14 @@ PROGRAM tra_adv
       DO jk = 1, jpk-1    
          DO jj = 2, jpj
             DO ji = 2, jpi
-               zslpx(ji,jj,jk) = SIGN( 1.d0, zslpx(ji,jj,jk) ) * MIN(    ABS( zslpx(ji  ,jj,jk) ),   &
-               &                                                2.d0*ABS( zwx  (ji-1,jj,jk) ),   &
-               &                                                2.d0*ABS( zwx  (ji  ,jj,jk) ) )
-               zslpy(ji,jj,jk) = SIGN( 1.d0, zslpy(ji,jj,jk) ) * MIN(    ABS( zslpy(ji,jj  ,jk) ),   &
-               &                                                2.d0*ABS( zwy  (ji,jj-1,jk) ),   &
-               &                                                2.d0*ABS( zwy  (ji,jj  ,jk) ) )
+               zslpx(ji,jj,jk) = SIGN( 1.d0, zslpx(ji,jj,jk) ) * &
+               &    MIN( ABS(zslpx(ji  ,jj,jk) ),                &
+               &         2.d0*ABS( zwx  (ji-1,jj,jk) ),          &
+               &         2.d0*ABS( zwx  (ji  ,jj,jk) ) )
+               zslpy(ji,jj,jk) = SIGN( 1.d0, zslpy(ji,jj,jk) ) * &
+               &    MIN( ABS(zslpy(ji,jj  ,jk) ),                &
+               &         2.d0*ABS( zwy  (ji,jj-1,jk) ),          &
+               &         2.d0*ABS( zwy  (ji,jj  ,jk) ) )
             END DO
          END DO
       END DO 
