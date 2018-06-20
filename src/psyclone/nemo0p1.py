@@ -543,11 +543,10 @@ def _add_code_block(parent, statements):
 
     if not statements:
         return None
-    
     code_block = NemoCodeBlock(statements,
                                parent=parent)
     parent.addchild(code_block)
-    statements = []
+    del statements[:]
     return code_block
 
 
