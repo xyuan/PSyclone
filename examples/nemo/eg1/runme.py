@@ -34,12 +34,74 @@
 # -----------------------------------------------------------------------------
 # Author A. R. Porter, STFC Daresbury Laboratory
 from __future__ import print_function
+import os
+
+
+def _run_omni_front(filename):
+    '''
+    Run the OMNI front-end on the specified filename and return a DOM.
+    :param str filename: name (and path) of Fortran source file
+    :returns: DOM of XCodeML/F representation of the Fortran
+    :rtype: :py:class:`xml.dom` TBD
+    '''
+    import subprocess
+    from xml.dom.minidom import parse
+    xmlfile = filename + ".xml"
+    # TODO OMNI must be able to find .xmod files for any modules that
+    # the supplied Fortran code USEs.
+    arg_list = ['F_Front', filename, '-o', xmlfile]
+    try:
+        build = subprocess.Popen(arg_list,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT)
+        (output, error) = build.communicate()
+    except OSError as err:
+        print("Failed to run: {0}: ".format(" ".join(arg_list)))
+        print("Error was: ", str(err))
+        raise Exception(str(err))
+
+    # Parse the generated XCodeML/F file
+    dom = parse(xmlfile)
+
+    # Remove the XCodeML/F file
+    os.remove(xmlfile)
+
+    return dom
+
+
+def _run_omni_back(xdom, outfile):
+    '''
+    :param xdom: DOM to create Fortran from
+    '''
+    import subprocess
+    import tempfile
+
+    # Write the XML to file so we can process it with CLAW
+    xml = xdom.toxml()
+    tfile = tempfile.NamedTemporaryFile(mode='w', suffix='xml',
+                                        delete=False)
+    tfile.write(xml)
+    tfile.close()
+
+    # Run OMNI backend on the generated XML file
+    arg_list = ['F_Back', '-l', tfile.name, '-o', outfile]
+    try:
+        build = subprocess.Popen(arg_list,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT)
+        (output, error) = build.communicate()
+    except OSError as err:
+        print("Failed to run: {0}: ".format(" ".join(arg_list)))
+        print("Error was: ", str(err))
+        raise Exception(str(err))
+    print("DOM written to {0}".format(outfile))
+
 
 if __name__ == "__main__":
-    import os
     import sys
-    from argparse import ArgumentParser
+    import subprocess
     from xml.dom.minidom import parse
+    from argparse import ArgumentParser
     from psyclone.psyGen import PSyFactory
     from psyclone.nemo0p1 import NemoSchedule, NemoLoop
     from psyclone.transformations import OMPParallelLoopTrans
@@ -56,6 +118,7 @@ if __name__ == "__main__":
         if not os.path.isfile(infile):
             print("Cannot find input file '{0}' - skipping".format(file))
             continue
+
         # Parse the supplied XCodeML/F file
         dom = parse(infile)
 
@@ -76,28 +139,9 @@ if __name__ == "__main__":
                 omptrans.apply(loop)
 
         sched.view()
-        # Generate the new XCodeML/F from the transformed AST
+
+        # Generate the new XCodeML/F from the transformed AST and run the
+        # OMNI back-end on it
         dom3 = psy.gen
-
-        # Write the XML to file so we can process it with CLAW
-        xml = dom3.toxml()
-        import tempfile
-        tfile = tempfile.NamedTemporaryFile(mode='w', suffix='xml',
-                                            delete=False)
-        tfile.write(xml)
-        tfile.close()
-
-        # Run the OMNI back-end on the XML
-        import subprocess
-        arg_list = ['F_Back', '-l', tfile.name, '-o', 'new.f90']
-        try:
-            build = subprocess.Popen(arg_list,
-                                     stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT)
-            (output, error) = build.communicate()
-        except OSError as err:
-            print("Failed to run: {0}: ".format(" ".join(arg_list)))
-            print("Error was: ", str(err))
-            raise Exception(str(err))
-
-        print("Transformed Fortran written to new.f90")
+        outfile = infile.replace(".xml", ".new.f90")
+        _run_omni_back(dom3, outfile)
