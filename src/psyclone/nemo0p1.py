@@ -233,10 +233,13 @@ class NemoSchedule(Schedule):
 
 class NemoLoop(Loop):
     '''
+    Class representing a Loop in NEMO.
     '''
     def __init__(self, xnode, parent=None):
         '''
-        :param xnode: :py:class:`xml.dom.minidom.xxxxx`
+        :param xnode: the node in the XML dom representing the Loop
+        :type xnode: :py:class:`xml.dom.minidom.xxxxx`
+        :param parent: the parent of this Loop in the PSyclone AST
         '''
         from psyclone.psyGen import Loop
         Loop.__init__(self, parent=parent,
@@ -246,11 +249,11 @@ class NemoLoop(Loop):
 
         # Get the loop variable
         vars = xnode.getElementsByTagName("Var")
-        self._loop_var = text_value(vars[0])
+        self._variable_name = text_value(vars[0])
 
         # Identify the type of loop
-        if self._loop_var in NEMO_LOOP_TYPE_MAPPING:
-            self.loop_type = NEMO_LOOP_TYPE_MAPPING[self._loop_var]
+        if self._variable_name in NEMO_LOOP_TYPE_MAPPING:
+            self.loop_type = NEMO_LOOP_TYPE_MAPPING[self._variable_name]
         else:
             self.loop_type = "unknown"
 
@@ -278,7 +281,6 @@ class NemoLoop(Loop):
                 _add_code_block(self, code_block_nodes)
                 self.addchild(NemoLoop(child, parent=self))
             else:
-                print child.tagName
                 code_block_nodes.append(child)
 
         # Finish any open code block
@@ -395,17 +397,8 @@ class NemoKern(Kern):
 
         # TODO Loop variables and ranges are properties of NemoLoop(s) now?
         #for ctrl in ctrls:
-        #    self._loop_vars.append(str(ctrl.items[0]))
         #    self._loop_ranges.append( (str(ctrl.items[1][0]),
         #                               str(ctrl.items[1][1])) )
-
-        # Now we find the content of this nested loop
-        #nested_loops = walk_ast(loop.content, [Block_Nonlabel_Do_Construct])
-        #inner_loop = nested_loops[-1]
-        #if not isinstance(inner_loop.content[0], Nonlabel_Do_Stmt):
-        #    raise ParseError("Internal error, expecting Nonlabel_Do_Stmt as "
-        #                     "first child of Block_Nonlabel_Do_Construct but "
-        #                     "got {0}".format(type(inner_loop.content[0])))
 
         # TODO not sure I need to store the kernel body like this?
         self._body = []
@@ -432,6 +425,21 @@ class NemoKern(Kern):
         self._shared_vars = set()
         self._first_private_vars = set()
         self._private_vars = set()
+        # Assume that any arrays accessed in the kernel must be shared
+        arrays = loop.getElementsByTagName("FarrayRef")
+        for array in arrays:
+            varref = array.getElementsByTagName("varRef")[0]
+            var = varref.getElementsByTagName("Var")[0]
+            self._shared_vars.add(text_value(var))
+        # Check whether we write to any scalar variables
+        assigns = loop.getElementsByTagName("FassignStatement")
+        for assign in assigns:
+            for child in assign.childNodes:
+                if child.nodeType == child.ELEMENT_NODE:
+                    if child.tagName == "Var":
+                        self._private_vars.add(text_value(child))
+                    break
+
         # If there are scalar variables that are inputs to the DAG (other than
         # the loop counters) then they must be declared first-private.
         #for node in inputs:
@@ -486,7 +494,7 @@ class NemoKern(Kern):
         (and must therefore be e.g. threadprivate if doing OpenMP)
 
         '''
-        return []
+        return list(self._private_vars)
 
     def view(self, indent=0):
         ''' Print representation of this node to stdout '''
@@ -538,8 +546,12 @@ class NemoKern(Kern):
 
 
 def _add_code_block(parent, statements):
-    ''' Create a NemoCodeBlock for the supplied list of statements
-    and then wipe the list of statements '''
+    '''
+    Create a NemoCodeBlock for the supplied list of statements
+    and then wipe the list of statements.
+    :param parent: TBD
+    :param list statements: TBD
+    '''
 
     if not statements:
         return None
