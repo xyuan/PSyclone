@@ -2423,12 +2423,25 @@ class Call(Node):
 
 
 class Kern(Call):
+    '''
+    Class representing a Kernel call within the Schedule (AST) of an Invoke.
+
+    :param KernelArguments:
+    :param call:
+    :param parent:
+    :param bool check: Whether or not to check that the number of arguments \
+                       specified in the kernel meta-data matches the number \
+                       provided by the call in the Algorithm layer.
+    :raises GenerationError: if(check) and the number of arguments in the \
+                             call does not match that in the meta-data.
+    '''
     def __init__(self, KernelArguments, call, parent=None, check=True):
         Call.__init__(self, parent, call, call.ktype.procedure.name,
                       KernelArguments(call, self))
         self._module_name = call.module_name
         self._module_code = call.ktype._ast
         self._kernel_code = call.ktype.procedure
+        self._xcodeml = None  # The XCodeML representation of the kernel
         self._module_inline = False
         if check and len(call.ktype.arg_descriptors) != len(call.args):
             raise GenerationError(
@@ -2553,6 +2566,32 @@ class Kern(Call):
         ''' Returns true if this kernel is being called from within a
         coloured loop '''
         return self.parent.loop_type == "colour"
+
+
+    def get_xml(self):
+        '''
+        Generate the XcodeML representation of the kernel source.
+        '''
+        from psyclone.xcodeml import omni_frontend
+        from psyclone.line_length import FortLineLength
+        import tempfile
+        # Omni cares about line lengths so get a line-length limiter
+        fll = FortLineLength()
+        # Ideally we would recurse down and generate a list of modules
+        # that this kernel depends upon. We could then run OMNI on each
+        # of them. However, that would require us to build a dependency
+        # tree which feels a bit heavyweight. For the moment therefore
+        # we look-up where to find pre-compiled module files.
+        #_CONFIG.api("").
+        # Use the fparser AST to generate a (temporary) Fortran file
+        fortran = self._module_code.tofortran()
+        fortran_limited = fll.process(fortran)
+        # delete=False is required to ensure the file is not deleted
+        # when it is closed
+        fort_file = tempfile.NamedTemporaryFile(delete=False, suffix=".f90")
+        fort_file.write(fortran_limited)
+        fort_file.close()
+        self._xcodeml = omni_frontend(fort_file.name)
 
 
 class BuiltIn(Call):
