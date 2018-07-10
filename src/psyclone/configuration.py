@@ -216,6 +216,8 @@ class Config(object):
             if api in self._config:
                 if api == "dynamo0.3":
                     self._api[api] = DynConfig(self, self._config[api])
+                elif api == "gocean1.0":
+                    self._api[api] = GOConfig(self, self._config[api])
                 else:
                     raise NotImplementedError(
                         "Configuration file contains a {0} section but no "
@@ -418,3 +420,39 @@ class DynConfig(object):
 
         '''
         return self._compute_annexed_dofs
+
+
+class GOConfig(object):
+    '''
+    GOcean 1.0-specific Config sub-class. Holds configuration options specific
+    to the GOcean 1.0 API.
+
+    :param config: The 'parent' Config object.
+    :type config: :py:class:`psyclone.configuration.Config`
+    :param section: The entry for the gocean 1.0 section of \
+                    the configuration file, as produced by ConfigParser.
+    :type section:  :py:class:`configparser.SectionProxy`
+
+    '''
+    def __init__(self, config, section):
+
+        self._config = config  # Ref. to parent Config object
+        try:
+            self._module_path = section.get('MODULE_PATH', None)
+        except ValueError as err:
+            raise ConfigurationError(
+                "error while parsing MODULE_PATH in the [gocean1.0] "
+                "section of the config file: {0}".format(str(err)),
+                config=self._config)
+
+    @property
+    def module_path(self):
+        '''
+        Getter for the location of module files required by GOcean 1.0
+        kernels.
+        :returns: The full path to the directory containing the Fortran
+                  module sources.
+        :rtype: str
+
+        '''
+        return self._module_path
