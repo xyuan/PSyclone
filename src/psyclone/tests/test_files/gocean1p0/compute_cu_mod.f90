@@ -102,6 +102,7 @@ contains
 
   !> Compute the mass flux in the x direction at point (i,j)
   subroutine compute_cu_code(i, j, cu, p, u)
+    use kind_params_mod, only: wp
     implicit none
     integer,  intent(in) :: I, J
     real(wp), intent(out), dimension(:,:) :: cu

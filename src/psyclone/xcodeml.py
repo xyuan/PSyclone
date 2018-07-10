@@ -53,18 +53,16 @@ class ExternalError(Exception):
         return repr(self.value)
 
 
-def omni_frontend(filename, mod_search_paths=None):
+def omni_frontend(filename, xmlfile=None, mod_search_paths=None):
     '''
-    Run the OMNI front-end on the specified filename and return a DOM.
+    Run the OMNI front-end on the specified Fortran file to produce an
+    XCodeML/F file.
     :param str filename: name (and path) of Fortran source file.
+    :param str xmlfile: name to use for output file or None.
     :param list mod_search_paths: list of locations (str) to search for \
                                   Fortran module files.
-    :returns: DOM of XCodeML/F representation of the Fortran.
-    :rtype: :py:class:`xml.dom` TBD
     '''
     import subprocess
-    from xml.dom.minidom import parse
-    xmlfile = filename + ".xml"
     # TODO OMNI must be able to find .xmod files for any modules that
     # the supplied Fortran code USEs.
     arg_list = ['F_Front']
@@ -72,7 +70,9 @@ def omni_frontend(filename, mod_search_paths=None):
         inc_args = ["-I{0}".format(path) for path in mod_search_paths]
         mod_path = " ".join(inc_args)
         arg_list.append(mod_path)
-    arg_list += [filename, '-o', xmlfile]
+    arg_list.append(filename)
+    if xmlfile:
+        arg_list += ['-o', xmlfile]
     try:
         build = subprocess.Popen(arg_list,
                                  stdout=subprocess.PIPE,
@@ -84,9 +84,25 @@ def omni_frontend(filename, mod_search_paths=None):
         raise ExternalError(str(err))
 
     if build.returncode != 0:
+        print("Failed to run: {0}: ".format(" ".join(arg_list)))
         raise ExternalError(
             "Failed to run Omni frontend:\n stderr={0}, stdout={1}".
             format(str(error), str(output)))
+
+
+def FortranToXML(filename, mod_search_paths=None):
+    '''
+    Run the OMNI front-end on the specified filename and return a DOM
+    containing the XCodeML/F representation.
+    :param str filename: name (and path) of Fortran source file.
+    :param list mod_search_paths: list of locations (str) to search for \
+                                  Fortran module files.
+    :returns: DOM of XCodeML/F representation of the Fortran.
+    :rtype: :py:class:`xml.dom` TBD
+    '''
+    from xml.dom.minidom import parse
+    xmlfile = filename + ".xml"
+    omni_frontend(filename, xmlfile, mod_search_paths)
     
     # Parse the generated XCodeML/F file
     dom = parse(xmlfile)

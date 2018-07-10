@@ -42,7 +42,7 @@ from psyclone.parse import parse
 from psyclone.psyGen import PSyFactory
 
 BASE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "test_files", "dynamo0p3")
+                         "test_files", "gocean1p0")
 
 
 def test_kern_to_xml():
@@ -50,11 +50,12 @@ def test_kern_to_xml():
     '''
     from psyclone.psyGen import Kern
     _, invoke = parse(
-        os.path.join(BASE_PATH, "1_single_invoke.f90"),
-        api="dynamo0.3")
-    psy = PSyFactory("dynamo0.3", distributed_memory=False).create(invoke)
+        os.path.join(BASE_PATH, "single_invoke.f90"),
+        api="gocean1.0")
+    psy = PSyFactory("gocean1.0").create(invoke)
     sched = psy.invokes.invoke_list[0].schedule
-    kern = sched.children[0].children[0]
+    kern = sched.children[0].children[0].children[0]
     assert isinstance(kern, Kern)
     kern.get_xml()
-    print(kern._xcodeml)
+    print(kern._xcodeml.toprettyxml())
+    assert 0

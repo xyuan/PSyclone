@@ -2457,6 +2457,24 @@ class Kern(Call):
         return "kern call: "+self._name
 
     @property
+    def api(self):
+        '''
+        :returns: the PSyclone API to which this Kernel belongs.
+        :rtype: str
+        :raises GenerationError: if the API cannot be determined.
+        '''
+        from psyclone.dynamo0p3 import DynKern
+        from psyclone.gocean1p0 import GOKern
+        if isinstance(self, DynKern):
+            return "dynamo0.3"
+        elif isinstance(self, GOKern):
+            return "gocean1.0"
+        else:
+            raise GenerationError(
+                "Cannot determine API for kernel of type {0}".
+                format(type(kern)))
+
+    @property
     def module_name(self):
         '''
         :return: The name of the Fortran module that contains this kernel
@@ -2572,26 +2590,39 @@ class Kern(Call):
         '''
         Generate the XcodeML representation of the kernel source.
         '''
-        from psyclone.xcodeml import omni_frontend
+        from psyclone.xcodeml import omni_frontend, FortranToXML
         from psyclone.line_length import FortLineLength
         import tempfile
+        import os
         # Omni cares about line lengths so get a line-length limiter
         fll = FortLineLength()
-        # Ideally we would recurse down and generate a list of modules
-        # that this kernel depends upon. We could then run OMNI on each
-        # of them. However, that would require us to build a dependency
-        # tree which feels a bit heavyweight. For the moment therefore
-        # we look-up where to find pre-compiled module files.
-        #_CONFIG.api("").
+
+        work_dir = tempfile.mkdtemp()
+        cwd = os.getcwd()
+        os.chdir(work_dir)
+        
+        # Look-up where to find module files needed by a kernel
+        mod_path = _CONFIG.api(self.api).module_path
+        if not os.path.exists(mod_path):
+            raise GenerationError("Directory '{0}' containing module source "
+                                  "code does not exist".format(mod_path))
+        modules = os.listdir(mod_path)
+        for mod in modules:
+            omni_frontend(os.path.join(mod_path, mod))
+        os.chdir(cwd)
+
         # Use the fparser AST to generate a (temporary) Fortran file
-        fortran = self._module_code.tofortran()
+        fortran = self._kernel_code.ast.tofortran()
         fortran_limited = fll.process(fortran)
+        print(fortran_limited)
         # delete=False is required to ensure the file is not deleted
         # when it is closed
         fort_file = tempfile.NamedTemporaryFile(delete=False, suffix=".f90")
         fort_file.write(fortran_limited)
         fort_file.close()
-        self._xcodeml = omni_frontend(fort_file.name)
+        self._xcodeml = FortranToXML(fort_file.name, [work_dir])
+
+        # TODO clean-up temporary files
 
 
 class BuiltIn(Call):
