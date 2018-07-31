@@ -51,7 +51,8 @@ from psyclone import psyGen
 from psyclone.configuration import ConfigFactory
 from psyclone.psyGen import PSy, Invokes, Invoke, Schedule, Loop, Kern, \
     Arguments, KernelArgument, NameSpaceFactory, GenerationError, \
-    FieldNotFoundError, HaloExchange, GlobalSum, FORTRAN_INTENT_NAMES
+    InternalError, FieldNotFoundError, HaloExchange, GlobalSum, \
+    FORTRAN_INTENT_NAMES
 from collections import OrderedDict
 
 # Get our one-and-only Config object - this holds the global configuration
@@ -173,6 +174,10 @@ FIELD_ACCESS_MAP = {"write": "gh_write", "read": "gh_read",
 # Valid Dynamo0.3 loop types. The default is "" which is over cells (in the
 # horizontal plane).
 VALID_LOOP_TYPES = ["dofs", "colours", "colour", ""]
+
+# The properties of the reference element that PSyclone recognises
+# TODO populate this list with input from e.g. Tom Melvin
+VALID_REF_ELEM_PROPERTIES = ["gh_out_face_normal"]
 
 # Mappings used by non-API-Specific code in psyGen
 psyGen.MAPPING_REDUCTIONS = {"sum": "gh_sum"}
@@ -527,6 +532,9 @@ class DynArgDescriptor03(Descriptor):
         '''
         :param arg_type: dynamo0.3 argument type (scalar, field or operator)
         :type arg_type: :py:class:`psyclone.dynamo0p3.DynKernelArgument`
+        :raises ParseError: if the meta-data describing the argument does \
+                            not conform to the rules for the Dynamo 0.3 API.
+        :raises InternalError: if the unexpected happens.
         '''
         self._arg_type = arg_type
         if arg_type.name != 'arg_type':
@@ -534,13 +542,14 @@ class DynArgDescriptor03(Descriptor):
                 "In the dynamo0.3 API each meta_arg entry must be of type "
                 "'arg_type', but found '{0}'".format(arg_type.name))
 
-        # We require at least 2 args
-        if len(arg_type.args) < 2:
+        # We require at least 1 arg
+        if not arg_type.args:
             raise ParseError(
                 "In the dynamo0.3 API each meta_arg entry must have at least "
-                "2 args, but found '{0}'".format(len(arg_type.args)))
+                "1 arg, but found '{0}'".format(len(arg_type.args)))
 
-        # The first arg is the type of field, possibly with a *n appended
+        # The first arg is either the name of a reference-element property
+        # or the type of field, possibly with a *n appended
         self._vector_size = 1
         if isinstance(arg_type.args[0], expr.BinaryOperator):
             # We expect 'field_type * n' to have been specified
@@ -581,34 +590,48 @@ class DynArgDescriptor03(Descriptor):
 
         elif isinstance(arg_type.args[0], expr.FunctionVar):
             # We expect 'field_type' to have been specified
-            if arg_type.args[0].name not in VALID_ARG_TYPE_NAMES:
+            if arg_type.args[0].name not in VALID_ARG_TYPE_NAMES + \
+               VALID_REF_ELEM_PROPERTIES:
                 raise ParseError(
-                    "In the dynamo0.3 API the 1st argument of a "
-                    "meta_arg entry should be a valid argument type (one of "
-                    "{0}), but found '{1}' in '{2}'".
-                    format(VALID_ARG_TYPE_NAMES, arg_type.args[0].name,
-                           arg_type))
+                    "In the dynamo0.3 API the 1st argument of a meta_arg "
+                    "entry should either be a valid argument type (one of "
+                    "{0}) or a recognised property of the reference element "
+                    "(one of {1}), but found '{2}' in '{3}'".
+                    format(VALID_ARG_TYPE_NAMES, VALID_REF_ELEM_PROPERTIES,
+                           arg_type.args[0].name, arg_type))
             self._type = arg_type.args[0].name
         else:
-            raise ParseError(
-                "Internal error in DynArgDescriptor03.__init__, (1) should "
-                "not get to here")
+            raise InternalError("DynArgDescriptor03.__init__, (1) should "
+                                "not get to here")
 
-        # The 2nd arg is an access descriptor
-        if arg_type.args[1].name not in VALID_ACCESS_DESCRIPTOR_NAMES:
-            raise ParseError(
-                "In the dynamo0.3 API the 2nd argument of a meta_arg entry "
-                "must be a valid access descriptor (one of {0}), but found "
-                "'{1}' in '{2}'".format(VALID_ACCESS_DESCRIPTOR_NAMES,
-                                        arg_type.args[1].name, arg_type))
-        self._access_descriptor = arg_type.args[1]
-        # Reduction access descriptors are only valid for real scalar arguments
-        if self._type != "gh_real" and \
-           self._access_descriptor.name in VALID_REDUCTION_NAMES:
-            raise ParseError(
-                "In the dynamo0.3 API a reduction access '{0}' is only valid "
-                "with a real scalar argument, but '{1}' was found".
-                format(self._access_descriptor.name, self._type))
+        # We only have more than one argument to a meta-arg if it is *not*
+        # a named property
+        if self._type not in VALID_REF_ELEM_PROPERTIES:
+            if len(arg_type.args) < 2:
+                raise ParseError(
+                    "In the dynamo0.3 API each meta_arg entry for a scalar, "
+                    "field or operator must have at least "
+                    "2 args, but found '{0}'".format(len(arg_type.args)))
+            # The 2nd arg is an access descriptor
+            self._access_descriptor = arg_type.args[1].name.lower()
+
+            if self._access_descriptor not in VALID_ACCESS_DESCRIPTOR_NAMES:
+                raise ParseError(
+                    "In the dynamo0.3 API the 2nd argument of a meta_arg entry "
+                    "must be a valid access descriptor (one of {0}), but found "
+                    "'{1}' in '{2}'".format(VALID_ACCESS_DESCRIPTOR_NAMES,
+                                            self._access_descriptor, arg_type))
+            # Reduction access descriptors are only valid for real, scalar
+            # arguments
+            if self._type != "gh_real" and \
+               self._access_descriptor in VALID_REDUCTION_NAMES:
+                raise ParseError(
+                    "In the dynamo0.3 API a reduction access '{0}' is only "
+                    "valid with a real scalar argument, but '{1}' was found".
+                    format(self._access_descriptor, self._type))
+        else:
+            # Reference-element properties are always read-only in kernels
+            self._access_descriptor = "gh_read"
 
         # FIELD, OPERATOR and SCALAR datatypes descriptors and rules
         stencil = None
@@ -659,26 +682,26 @@ class DynArgDescriptor03(Descriptor):
                         format(arg_type, str(err)))
             # Test allowed accesses for fields
             if self._function_space1.lower() in DISCONTINUOUS_FUNCTION_SPACES \
-               and self._access_descriptor.name.lower() == "gh_inc":
+               and self._access_descriptor == "gh_inc":
                 raise ParseError(
                     "It does not make sense for a field on a discontinuous "
                     "space ({0}) to have a 'gh_inc' access".
                     format(self._function_space1.lower()))
             # TODO: extend for "gh_write"
             if self._function_space1.lower() in CONTINUOUS_FUNCTION_SPACES \
-               and self._access_descriptor.name.lower() == "gh_readwrite":
+               and self._access_descriptor == "gh_readwrite":
                 raise ParseError(
                     "It does not make sense for a field on a continuous "
                     "space ({0}) to have a 'gh_readwrite' access".
                     format(self._function_space1.lower()))
             # TODO: extend for "gh_write"
             if self._function_space1.lower() in VALID_ANY_SPACE_NAMES \
-               and self._access_descriptor.name.lower() == "gh_readwrite":
+               and self._access_descriptor == "gh_readwrite":
                 raise ParseError(
                     "In the dynamo0.3 API a field on any_space cannot "
                     "have 'gh_readwrite' access because it is treated "
                     "as continuous")
-            if stencil and self._access_descriptor.name.lower() != "gh_read":
+            if stencil and self._access_descriptor != "gh_read":
                 raise ParseError("a stencil must be read only so its access"
                                  "should be gh_read")
 
@@ -709,7 +732,7 @@ class DynArgDescriptor03(Descriptor):
                            arg_type))
             self._function_space2 = arg_type.args[3].name
             # Test allowed accesses for operators
-            if self._access_descriptor.name.lower() == "gh_inc":
+            if self._access_descriptor == "gh_inc":
                 raise ParseError(
                     "In the dynamo0.3 API operators cannot have a 'gh_inc' "
                     "access because they behave as discontinuous quantities")
@@ -722,25 +745,25 @@ class DynArgDescriptor03(Descriptor):
                     "arguments if its first argument is gh_{{r,i}}scalar, but "
                     "found {0} in '{1}'".format(len(arg_type.args), arg_type))
             # Test allowed accesses for scalars (read_only or reduction)
-            if self._access_descriptor.name not in ["gh_read"] + \
+            if self._access_descriptor not in ["gh_read"] + \
                VALID_REDUCTION_NAMES:
                 raise ParseError(
                     "In the dynamo0.3 API scalar arguments must be "
                     "read-only (gh_read) or a reduction ({0}) but found "
                     "'{1}' in '{2}'".format(VALID_REDUCTION_NAMES,
-                                            self._access_descriptor.name,
+                                            self._access_descriptor,
                                             arg_type))
             # Scalars don't have a function space
             self._function_space1 = None
-
+        elif self._type in VALID_REF_ELEM_PROPERTIES:
+            # Nothing to do for reference-element properties
+            self._function_space1 = None
         # We should never get to here
         else:
-            raise ParseError(
-                "Internal error in DynArgDescriptor03.__init__, (2) should "
-                "not get to here")
-        Descriptor.__init__(self, self._access_descriptor.name,
-                            self._function_space1, stencil=stencil,
-                            mesh=mesh)
+            raise InternalError(
+                "DynArgDescriptor03.__init__, (2) should not get to here")
+        Descriptor.__init__(self, self._access_descriptor,
+                            self._function_space1, stencil=stencil, mesh=mesh)
 
     @property
     def function_space_to(self):
@@ -775,12 +798,11 @@ class DynArgDescriptor03(Descriptor):
             return self._function_space1
         elif self._type in VALID_OPERATOR_NAMES:
             return self._function_space2
-        elif self._type in VALID_SCALAR_NAMES:
+        elif self._type in VALID_SCALAR_NAMES + VALID_REF_ELEM_PROPERTIES:
             return None
         else:
-            raise RuntimeError(
-                "Internal error, DynArgDescriptor03:function_space(), should "
-                "not get to here.")
+            raise InternalError("DynArgDescriptor03:function_space(), should "
+                                "not get to here.")
 
     @property
     def function_spaces(self):
@@ -792,12 +814,11 @@ class DynArgDescriptor03(Descriptor):
         elif self._type in VALID_OPERATOR_NAMES:
             # return to before from to maintain expected ordering
             return [self.function_space_to, self.function_space_from]
-        elif self._type in VALID_SCALAR_NAMES:
+        elif self._type in VALID_SCALAR_NAMES + VALID_REF_ELEM_PROPERTIES:
             return []
         else:
-            raise RuntimeError(
-                "Internal error, DynArgDescriptor03:function_spaces(), should "
-                "not get to here.")
+            raise InternalError("DynArgDescriptor03:function_spaces(), "
+                                "should not get to here.")
 
     @property
     def vector_size(self):
@@ -828,8 +849,11 @@ class DynArgDescriptor03(Descriptor):
                    format(self._function_space2) + os.linesep
         elif self._type in VALID_SCALAR_NAMES:
             pass  # we have nothing to add if we're a scalar
+        elif self._type in VALID_REF_ELEM_PROPERTIES:
+            # Nothing to add if we're a property of the reference element
+            pass
         else:  # we should never get to here
-            raise ParseError("Internal error in DynArgDescriptor03.__str__")
+            raise InternalError("DynArgDescriptor03.__str__")
         return res
 
     def __repr__(self):
@@ -950,6 +974,7 @@ class DynKernMetadata(KernelType):
         from psyclone.dynamo0p3_builtins import BUILTIN_MAP
         # We must have at least one argument that is written to
         write_count = 0
+        ref_elem_properties = []
         for arg in self._arg_descriptors:
             if arg.access != "gh_read":
                 write_count += 1
@@ -962,6 +987,17 @@ class DynKernMetadata(KernelType):
                         "write/update a scalar argument but kernel {0} has "
                         "{1} with {2} access".format(self.name,
                                                      arg.type, arg.access))
+            if arg.type in VALID_REF_ELEM_PROPERTIES:
+                # Check that any required reference-element properties are
+                # not duplicated in the meta-data
+                if arg.type not in ref_elem_properties:
+                    ref_elem_properties.append(arg.type)
+                else:
+                    raise ParseError(
+                        "The meta-data for kernel {0} contains duplicate "
+                        "entries for the '{1}' reference-element property.".
+                        format(self.name, arg.type))
+
         if write_count == 0:
             raise ParseError("A Dynamo 0.3 kernel must have at least one "
                              "argument that is updated (written to) but "
