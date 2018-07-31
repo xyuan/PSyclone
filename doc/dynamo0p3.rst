@@ -554,30 +554,37 @@ array will be of size 2 and there will be two ``arg_type`` entries:
        /)
 
 Argument-metadata (metadata contained within the brackets of an
-``arg_type`` entry), describes either a **scalar**, a **field** or an
-**operator** (either LMA or CMA).
+``arg_type`` entry), describes either a **scalar**, a **field** an
+**operator** (either LMA or CMA) or a **named property** of the reference
+element.
 
-The first argument-metadata entry describes whether the data that is
+The first argument-metadata entry either gives the name of the property
+that the kernel requires or describes whether the data that is
 being passed is for a real scalar (``GH_REAL``), an integer scalar
 (``GH_INTEGER``), a field (``GH_FIELD``) or an operator (either
 ``GH_OPERATOR`` for LMA or ``GH_COLUMNWISE_OPERATOR`` for CMA). This
-information is mandatory.
+information is mandatory and, for a named property, is all that is
+required. See the :ref:`ref-elem-properties` section for a
+description of the named properties that PSyclone suppports.
 
 Additionally, argument-metadata can be used to describe a vector of
 fields (see the :ref:`dynamo0.3-field-vector` section for more
 details).
 
 As an example, the following ``meta_args`` metadata describes 4
-entries, the first is a real scalar, the next two are fields and the
-fourth is an operator. The third entry is a field vector of size 3.
+entries, the first is a real scalar, the next two are fields (the
+second being a vector of size 3), the fourth is an operator and the
+fifth specifies a property that must be obtained from the reference
+element.
 
 ::
 
-  type(arg_type) :: meta_args(4) = (/                                  &
-       arg_type(GH_REAL, ...),                                         &
-       arg_type(GH_FIELD, ... ),                                       &
-       arg_type(GH_FIELD*3, ... ),                                     &
-       arg_type(GH_OPERATOR, ...)                                      &
+  type(arg_type) :: meta_args(5) = (/                             &
+       arg_type(GH_REAL, ...),                                    &
+       arg_type(GH_FIELD, ... ),                                  &
+       arg_type(GH_FIELD*3, ... ),                                &
+       arg_type(GH_OPERATOR, ...),                                &
+       arg_type(GH_OUT_FACE_NORMAL)                               &
        /)
 
 The second entry to argument-metadata (information contained within
@@ -1011,6 +1018,23 @@ the rest are read-only. They may also have read-only scalar arguments, e.g.:
         arg_type(GH_REAL, GH_READ) /)
 
 .. note:: The order with which arguments are specified in meta-data for CMA kernels does not affect the process of identifying the type of kernel (whether it is assembly, matrix-matrix etc.)
+
+.. _ref-elem-properties:
+
+Reference-Element Properties
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If a kernel requires a property of the reference element then PSyclone
+is responsible for providing it - this information is not exposed at
+the Algorithm layer. A kernel must specify that the information is
+required by naming one or more properties in the ``meta_args`` array
+in meta-data. The named properties recognised by PSyclone are:
+
+=============== =========== ===============
+Property        Description Kernel Argument
+=============== =========== ===============
+OUT_FACE_NORMAL
+=============== =========== ===============
 
 meta_funcs
 ##########
