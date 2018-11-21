@@ -129,6 +129,16 @@ def test_implicit_loop_sched2():
     assert len(kerns) == 1
 
 
+def test_do_while():
+    ''' Check that we get the correct schedule for a do-while loop. '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "do_while.f90"),
+                           api=API, line_length=False)
+    psy = PSyFactory(API, distributed_memory=False).create(invoke_info)
+    sched = psy.invokes.invoke_list[0].schedule
+    sched.view()
+    assert 0
+
+
 def test_multi_kern():
     ''' Test that having multiple kernels within a single loop raises
     the expected error. '''
