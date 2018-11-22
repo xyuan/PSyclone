@@ -730,6 +730,8 @@ class NemoImplicitLoop(NemoLoop):
 
         # Find all uses of array syntax in the statement
         subsections = walk_ast(ast.items, [Fortran2003.Section_Subscript_List])
+        # Create a list identifying which dimensions contain a range
+        sliced_dimensions = []
         # A Section_Subscript_List is a tuple with each item the
         # array-index expressions for the corresponding dimension of the array.
         for idx, item in enumerate(subsections[0].items):
@@ -748,6 +750,8 @@ class NemoImplicitLoop(NemoLoop):
                 # and thus we need to create an explicit loop for this
                 # dimension.
                 outermost_dim = idx
+                # Store the fact that this array index is a range.
+                sliced_dimensions.append(idx)
 
         if outermost_dim < 0 or outermost_dim > 2:
             raise GenerationError(
@@ -791,7 +795,15 @@ class NemoImplicitLoop(NemoLoop):
             # A tuple is immutable so work with a list
             indices = list(subsec.items)
             if outermost_dim >= len(indices):
-                import pdb; pdb.set_trace()
+                raise InternalError(
+                    "Expecting a colon for index {0} but array only has {1} "
+                    "dimensions".format(outermost_dim+1, len(indices)))
+            if not isinstance(indices[outermost_dim],
+                              Fortran2003.Subscript_Triplet):
+                raise NotImplementedError(
+                    "Currently implicit loops are restricted to cases where "
+                    "all array range specifications occur in the same "
+                    "dimension(s) of each array in an assignment.")
             # Replace the colon with our new variable name
             indices[outermost_dim] = name
             # Replace the original tuple with a new one
@@ -854,6 +866,8 @@ class NemoImplicitLoop(NemoLoop):
             return False
         # Now check the right-hand side...
         rhs = node.items[2]
+        if not hasattr(rhs, 'items'):
+            return True
         colons = walk_ast(rhs.items, [Fortran2003.Subscript_Triplet])
         if not colons:
             # We just have array syntax on the LHS
