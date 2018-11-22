@@ -38,8 +38,17 @@ program do_while_test
   real, dimension(jpi,jpj,jpk) :: gdepw_0
   real, dimension(jpi,jpj) :: rzisf_tbl
   integer, dimension(jpi,jpj) :: mbkt
+  logical :: my_flag
+  
+  ! Test code with DO while loops
 
-  ! Test code with DO while loop
+  do while(my_flag)
+     mbkt(:,:) = 0.0
+     my_flag = .false.
+  end do
+  
+  mbkt(:,:) = 0.0
+
   jk = 2
   DO WHILE ( jk .LE. mbkt(ji,jj) .AND. gdepw_0(ji,jj,jk) < rzisf_tbl(ji,jj) )
      jk = jk + 1

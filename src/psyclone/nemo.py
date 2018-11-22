@@ -124,8 +124,7 @@ class ASTProcessor(object):
             # TODO remove this line once fparser2 contains parent
             # information (fparser/#102)
             child._parent = nodes_parent  # Retro-fit parent info
-            if isinstance(child,
-                          Fortran2003.Block_Nonlabel_Do_Construct):
+            if NemoLoop.match(child):
                 # The start of a loop is taken as the end of any
                 # existing code block so we create that now
                 self.nodes_to_code_block(parent, code_block_nodes)
@@ -596,6 +595,7 @@ class NemoLoop(Loop, ASTProcessor):
     '''
     def __init__(self, ast, parent=None):
         from fparser.two.Fortran2003 import Loop_Control
+        from fparser.two.utils import BinaryOpBase
         Loop.__init__(self, parent=parent,
                       valid_loop_types=VALID_LOOP_TYPES)
         # Keep a ptr to the corresponding node in the AST
@@ -603,6 +603,15 @@ class NemoLoop(Loop, ASTProcessor):
 
         # Get the loop variable
         ctrl = walk_ast(ast.content, [Loop_Control])
+
+        # If this is a DO WHILE then the first element of items will be a
+        # scalar logical expression. (See
+        # `fparser.two.Fortran2003.Loop_Control`.) The `match` method should
+        # have already rejected such loops so we should never get to here.
+        if isinstance(ctrl[0].items[0], BinaryOpBase):
+            raise NotImplementedError(
+                "Cannot create a NemoLoop for a DO WHILE")
+
         # Second element of items member of Loop Control is itself a tuple
         # containing:
         #   Loop variable, [start value expression, end value expression, step
@@ -645,6 +654,33 @@ class NemoLoop(Loop, ASTProcessor):
             result += str(entity) + "\n"
         result += "EndLoop"
         return result
+
+    @staticmethod
+    def match(node):
+        '''
+        Tests the supplied node to see whether it is a recognised form of
+        NEMO loop.
+
+        :param node: the node in the fparser2 AST to test for a match.
+        :type node: :py:class:`fparser.two.utils.Base`
+
+        :returns: True if the node represents a recognised form of loop, \
+                  False otherwise.
+        :rtype: bool
+        '''
+        from fparser.two.utils import BinaryOpBase
+        if not isinstance(node, Fortran2003.Block_Nonlabel_Do_Construct):
+            return False
+        ctrl = walk_ast(node.content, my_types=[Fortran2003.Loop_Control])
+        if not ctrl:
+            return False
+        if isinstance(ctrl[0].items[0], (BinaryOpBase, Fortran2003.Name)):
+            # If this is a DO WHILE then the first element of items will be a
+            # scalar logical expression. (See
+            # `fparser.two.Fortran2003.Loop_Control`.)
+            # TODO DO WHILE's are currently just put into CodeBlocks.
+            return False
+        return True
 
     @property
     def kernel(self):
