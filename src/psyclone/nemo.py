@@ -674,7 +674,7 @@ class NemoLoop(Loop, ASTProcessor):
         ctrl = walk_ast(node.content, my_types=[Fortran2003.Loop_Control])
         if not ctrl:
             return False
-        if isinstance(ctrl[0].items[0], (BinaryOpBase, Fortran2003.Name)):
+        if ctrl[0].items[0]:
             # If this is a DO WHILE then the first element of items will be a
             # scalar logical expression. (See
             # `fparser.two.Fortran2003.Loop_Control`.)
