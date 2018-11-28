@@ -175,6 +175,10 @@ class NemoInvoke(Invoke):
         # Store the root of this routine's specification in the AST
         self._spec_part = get_child(ast, Specification_Part)
 
+        # List of unique loop variables that we generate for this Invoke
+        # (e.g. when making implicit loops explicit)
+        self._loop_vars = []
+
         # We now walk through the AST produced by fparser2 and construct a
         # new AST using objects from the nemo module.
         self._schedule = NemoSchedule(self, exe_part)
@@ -776,20 +780,29 @@ class NemoImplicitLoop(NemoLoop):
         # by using the fact that we *can* get hold of the PSyclone Invoke
         # object and that contains a reference to the root of the fparser2
         # AST...
+
+        # Get a reference to the Invoke to which this loop belongs
+        # TODO this breaks some tests because it assumes we're in a full
+        # PSyIRe tree with an Invoke at its root.
+        invoke = self.root.invoke
+
         name = Fortran2003.Name(FortranStringReader(self._variable_name))
-        prog_unit = self.root.invoke._ast
-        spec = walk_ast(prog_unit.content, [Fortran2003.Specification_Part])
-        if not spec:
-            names = walk_ast(prog_unit.content, [Fortran2003.Name])
-            # TODO create a Specification_Part
-            raise InternalError("No specification part found for routine {0}!".
-                                format(names[0]))
-        # TODO check that this variable has not already been declared
-        # Requires that we capture all variable declarations in the routine
-        # in some sort of management class.
-        decln = Fortran2003.Type_Declaration_Stmt(
-            FortranStringReader("integer :: {0}".format(self._variable_name)))
-        spec[0].content.append(decln)
+        if self._variable_name not in invoke._loop_vars:
+            invoke._loop_vars.append(self._variable_name)
+
+            prog_unit = self.root.invoke._ast
+            spec = walk_ast(prog_unit.content, [Fortran2003.Specification_Part])
+            if not spec:
+                names = walk_ast(prog_unit.content, [Fortran2003.Name])
+                # TODO create a Specification_Part
+                raise InternalError("No specification part found for routine {0}!".
+                                    format(names[0]))
+            # TODO check that this variable has not already been declared
+            # Requires that we capture all variable declarations in the routine
+            # in some sort of management class.
+            decln = Fortran2003.Type_Declaration_Stmt(
+                FortranStringReader("integer :: {0}".format(self._variable_name)))
+            spec[0].content.append(decln)
 
         for subsec in subsections:
             # A tuple is immutable so work with a list
