@@ -791,18 +791,25 @@ class NemoImplicitLoop(NemoLoop):
             invoke._loop_vars.append(self._variable_name)
 
             prog_unit = self.root.invoke._ast
-            spec = walk_ast(prog_unit.content, [Fortran2003.Specification_Part])
-            if not spec:
-                names = walk_ast(prog_unit.content, [Fortran2003.Name])
-                # TODO create a Specification_Part
-                raise InternalError("No specification part found for routine {0}!".
-                                    format(names[0]))
-            # TODO check that this variable has not already been declared
-            # Requires that we capture all variable declarations in the routine
-            # in some sort of management class.
-            decln = Fortran2003.Type_Declaration_Stmt(
-                FortranStringReader("integer :: {0}".format(self._variable_name)))
-            spec[0].content.append(decln)
+            spec_list = walk_ast(prog_unit.content,
+                                 [Fortran2003.Specification_Part])
+            if not spec_list:
+                # Routine has no specification part so create one and add it
+                # in to the AST
+                spec = Fortran2003.Specification_Part(
+                    FortranStringReader(
+                        "integer :: {0}".format(self._variable_name)))
+                spec._parent = prog_unit
+                for idx, child in enumerate(prog_unit.content):
+                    if isinstance(child, Fortran2003.Execution_Part):
+                        prog_unit.content.insert(idx, spec)
+                        break
+            else:
+                spec = spec_list[0]
+                decln = Fortran2003.Type_Declaration_Stmt(
+                    FortranStringReader(
+                        "integer :: {0}".format(self._variable_name)))
+                spec.content.append(decln)
 
         for subsec in subsections:
             # A tuple is immutable so work with a list
@@ -876,6 +883,10 @@ class NemoImplicitLoop(NemoLoop):
         colons = walk_ast(lhs.items, [Fortran2003.Subscript_Triplet])
         if not colons:
             # LHS does not use array syntax
+            return False
+        # What rank is the array?
+        if len(lhs.items) < 2:
+            # It's an array of rank 1 so we don't know what extent it has
             return False
         # Now check the right-hand side...
         rhs = node.items[2]
