@@ -249,7 +249,7 @@ def main(args):
         '-d', '--directory', default="", help='path to root of directory '
         'structure containing kernel source code')
     parser.add_argument(
-        '-I', '--include', default=["./"], action="append",
+        '-I', '--include', default=[], action="append",
         help='path to Fortran INCLUDE files')
     parser.add_argument(
         '-l', '--limit', dest='limit', action='store_true', default=False,
@@ -367,6 +367,12 @@ def main(args):
         my_file.close()
     else:
         print("Transformed algorithm code:\n%s" % alg_str)
+
+    # Hack to put back any INCLUDE statements that we turned into comments
+    # inside fparser2
+    # TODO remove this code!
+    if psy_str:
+        psy_str = psy_str.replace("!UNTREATED ", "")
 
     if not psy_str:
         # empty file so do not output anything

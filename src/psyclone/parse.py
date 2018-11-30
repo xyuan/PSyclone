@@ -1249,6 +1249,7 @@ def parse_fp2(filename):
     # We get the directories to search for any Fortran include files from
     # our configuration object.
     config = Config.get()
-    reader = FortranFileReader(filename, include_dirs=config.include_paths)
+    reader = FortranFileReader(filename, include_dirs=config.include_paths,
+                               ignore_comments=False)
     ast = parser(reader)
     return ast
