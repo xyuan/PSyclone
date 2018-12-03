@@ -843,7 +843,7 @@ class NemoIfBlock(IfBlock, ASTProcessor):
                                 format(str(ast)))
 
         clause_indices = []
-        for idx, child in enumerate(ast.content[start_idx:end_idx+1]):
+        for idx, child in enumerate(ast.content):
             child._parent = self._ast  # Retrofit parent info
             if isinstance(child, (Fortran2003.If_Then_Stmt,
                                   Fortran2003.Else_Stmt,
