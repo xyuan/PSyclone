@@ -97,38 +97,6 @@ def test_explicit_do_sched():
     assert isinstance(loops[2].children[0], nemo.NemoKern)
 
 
-def test_implicit_loop_sched1():
-    ''' Check that we get the correct schedule for an implicit loop '''
-    _, invoke_info = parse(os.path.join(BASE_PATH, "implicit_do.f90"),
-                           api=API, line_length=False)
-    psy = PSyFactory(API, distributed_memory=False).create(invoke_info)
-    assert isinstance(psy, nemo.NemoPSy)
-    print(len(psy.invokes.invoke_list))
-    sched = psy.invokes.invoke_list[0].schedule
-    sched.view()
-    loops = sched.walk(sched.children, nemo.NemoLoop)
-    assert len(loops) == 3
-    kerns = sched.kern_calls()
-    assert len(kerns) == 1
-
-
-def test_implicit_loop_sched2():
-    ''' Check that we get the correct schedule for an explicit loop over
-    levels containing an implicit loop over the i-j slab '''
-    _, invoke_info = parse(os.path.join(BASE_PATH,
-                                        "explicit_over_implicit.f90"),
-                           api=API, line_length=False)
-    psy = PSyFactory(API, distributed_memory=False).create(invoke_info)
-    sched = psy.invokes.invoke_list[0].schedule
-    sched.view()
-    # We should have 3 loops (one from the explicit loop over levels and
-    # the other two from the implicit loops over ji and jj).
-    loops = sched.walk(sched.children, nemo.NemoLoop)
-    assert len(loops) == 3
-    kerns = sched.kern_calls()
-    assert len(kerns) == 1
-
-
 def test_array_valued_function():
     ''' Check that we handle array notation used when there is no implicit
     loop. '''
@@ -197,64 +165,6 @@ def test_implicit_loop_assign():
     # Check that the loop variables have been declared just once
     for var in ["psy_ji", "psy_jj", "psy_jk"]:
         assert gen.count("integer :: {0}".format(var)) == 1
-
-
-def test_unrecognised_implicit():
-    ''' Check that we raise the expected error if we encounter an
-    unrecognised form of implicit loop. '''
-    from psyclone.nemo import NemoImplicitLoop, NemoInvoke
-    # Array syntax used in an unsupported index location
-    reader = FortranStringReader("umask(:, :, :, :) = 0.0D0")
-    assign = Fortran2003.Assignment_Stmt(reader)
-    with pytest.raises(GenerationError) as err:
-        NemoImplicitLoop(assign)
-    assert ("Array section in unsupported dimension (4) for code "
-            "'umask(:, :, :, :) = 0.0D0'" in str(err))
-    # and now for the case where the Program unit doesn't have a
-    # specification section to modify. This is hard to trigger
-    # so we manually construct some objects and put them together
-    # to create an artificial example...
-    reader = FortranStringReader("umask(:, :, :) = 0.0D0")
-    assign = Fortran2003.Assignment_Stmt(reader)
-    reader = FortranStringReader("program atest\nreal :: umask(1,1,1,1)\n"
-                                 "umask(:, :, :) = 0.0\nend program atest")
-    prog = Fortran2003.Program_Unit(reader)
-    invoke = NemoInvoke(prog, name="atest")
-    loop = NemoImplicitLoop.__new__(NemoImplicitLoop)
-    loop._parent = None
-    loop.invoke = invoke
-    loop.root.invoke._ast = prog
-    spec = walk_ast(prog.content, [Fortran2003.Specification_Part])
-    prog.content.remove(spec[0])
-    with pytest.raises(InternalError) as err:
-        loop.__init__(assign)
-    assert "No specification part found for routine atest" in str(err)
-
-
-def test_implicit_range_err():
-    ''' Check that we raise the expected error if we encounter an implicit
-    loop with an explicit range (since we don't yet support that). '''
-    # Array syntax with an explicit range
-    reader = FortranStringReader("umask(1:jpi, 1, :) = 0.0D0")
-    assign = Fortran2003.Assignment_Stmt(reader)
-    with pytest.raises(NotImplementedError) as err:
-        nemo.NemoImplicitLoop(assign)
-    assert ("Support for implicit loops with specified bounds is not yet "
-            "implemented: 'umask(1 : jpi, 1, :) = 0.0D0'" in str(err))
-
-
-def test_implicit_loop_different_rank():
-    ''' Test that we reject implicit loops if the index positions of the
-    colons differs. This is a restriction that could be lifted by
-    using e.g. SIZE(zvab, 1) as the upper loop limit or (with a lot more
-    work) by interrogating the parsed code to figure out the loop bound. '''
-    _, invoke_info = parse(os.path.join(BASE_PATH,
-                                        "array_section_index_mismatch.f90"),
-                           api=API, line_length=False)
-    with pytest.raises(NotImplementedError) as err:
-        _ = PSyFactory(API, distributed_memory=False).create(invoke_info)
-        assert ("implicit loops are restricted to cases where all array "
-                "range specifications occur" in str(err))
 
 
 def test_codeblock():
@@ -354,6 +264,7 @@ def test_kern_inside_if():
                            api=API, line_length=False)
     psy = PSyFactory(API, distributed_memory=False).create(invoke_info)
     sched = psy.invokes.invoke_list[0].schedule
+    sched.view()
     kerns = sched.kern_calls()
     assert len(kerns) == 6
     ifblock = sched.children[0].children[1]
@@ -431,11 +342,15 @@ def test_kern_load_errors(monkeypatch):
             "or Assignment_Stmt but got " in str(err))
     # TODO why haven't the Kernel or Loop objects got a valid _ast?
     loop = sched.children[0].children[0].children[0]._ast
-    monkeypatch.setattr(loop, "content", ["not_a_loop"])
+    # Create a valid fparser2 object with which to monkeypatch the content
+    # of the loop
+    reader = FortranStringReader("if(.true.)then\ndone=.true.\nend if\n")
+    ifblock = Fortran2003.If_Construct(reader)
+    monkeypatch.setattr(loop, "content", [ifblock])
     with pytest.raises(InternalError) as err:
         kerns[0]._load_from_loop(loop)
-    assert ("Expecting Nonlabel_Do_Stmt as first child of "
-            "Block_Nonlabel_Do_Construct but got" in str(err))
+    assert ("Failed to find Nonlabel_Do_Stmt in children of "
+            "Block_Nonlabel_Do_Construct" in str(err))
 
 
 def test_no_inline():

@@ -138,8 +138,9 @@ class ASTProcessor(object):
                 self.nodes_to_code_block(parent, code_block_nodes)
                 parent.addchild(NemoIfBlock(child, parent=parent))
             elif not isinstance(child, (Fortran2003.End_Do_Stmt,
-                                        Fortran2003.Nonlabel_Do_Stmt)):
-                # Don't include the do or end-do in a code block
+                                        Fortran2003.Nonlabel_Do_Stmt,
+                                        Fortran2003.Comment)):
+                # Don't include do, end-do or comment in a code block
                 code_block_nodes.append(child)
 
         # Complete any unfinished code-block
@@ -829,8 +830,17 @@ class NemoIfBlock(IfBlock, ASTProcessor):
         if not found_if_then:
             raise InternalError("Failed to find opening if then statement: "
                                 "{0}".format(str(ast)))
+        end_idx = -1
+        for child in reversed(ast.content):
+            if isinstance(child, Fortran2003.End_If_Stmt):
+                end_idx = ast.content.index(child)
+                break
+        if end_idx == -1:
+            raise InternalError("Failed to find closing end if statement: {0}".
+                                format(str(ast)))
+
         clause_indices = []
-        for idx, child in enumerate(ast.content):
+        for idx, child in enumerate(ast.content[start_idx:end_idx+1]):
             child._parent = self._ast  # Retrofit parent info
             if isinstance(child, (Fortran2003.If_Then_Stmt,
                                   Fortran2003.Else_Stmt,

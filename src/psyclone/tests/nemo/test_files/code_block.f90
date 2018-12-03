@@ -42,7 +42,9 @@ program code_block
 
   write (*,*) "Hello world"
   allocate(umask(jpi,jpj,jpk))
-  umask(1,1,:) = 0.0d0
+  do jk = 1, jpk
+     umask(1,1,jk) = 0.0d0
+  end do
   umask(1,1,1) = -10.0d0
 
   do jk = 1, jpk

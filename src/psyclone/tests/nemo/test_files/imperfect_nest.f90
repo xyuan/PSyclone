@@ -60,23 +60,41 @@ program imperfect_nest
       END DO
     END DO
     IF (jk == 1) THEN
-       zdkt(:, :) = zdk1t(:, :)
+       do jj = 1, jpj
+          do ji = 1, jpi
+             zdkt(ji, jj) = zdk1t(ji, jj)
+          end do
+       end do
     else if (jk == jpkm1) then
-       zdkt(:, :) = 0.5*zdk1t(:, :)
+       do jj = 1, jpj
+          do ji = 1, jpi
+             zdkt(ji, jj) = 0.5*zdk1t(ji, jj)
+          end do
+       end do
     ELSE
-      zdkt(:, :) = (ptb(:, :, jk - 1, jn) - ptb(:, :, jk, jn)) * wmask(:, :, jk)
+       do jj = 1, jpj
+          do ji = 1, jpi
+             zdkt(ji, jj) = (ptb(ji, jj, jk - 1, jn) - ptb(ji, jj, jk, jn)) * &
+                  wmask(ji, jj, jk)
+          end do
+       end do
     END IF
     DO jj = 1, jpjm1
       DO ji = 1, fs_jpim1
         zabe1 = pahu(ji, jj, jk) * e2_e1u(ji, jj) * e3u_n(ji, jj, jk)
-        zmsku = 1. / MAX(wmask(ji + 1, jj, jk) + wmask(ji, jj, jk + 1) + wmask(ji + 1, jj, jk + 1) + wmask(ji, jj, jk), 1.)
+        zmsku = 1. / MAX(wmask(ji + 1, jj, jk) + wmask(ji, jj, jk + 1) + &
+             wmask(ji + 1, jj, jk + 1) + wmask(ji, jj, jk), 1.)
         zcof1 = - pahu(ji, jj, jk) * e2u(ji, jj) * uslp(ji, jj, jk) * zmsku
-        zftu(ji, jj, jk) = (zabe1 * zdit(ji, jj, jk) + zcof1 * (zdkt(ji + 1, jj) + zdk1t(ji, jj) + zdk1t(ji + 1, jj) + zdkt(ji, jj))) * umask(ji, jj, jk)
+        zftu(ji, jj, jk) = (zabe1 * zdit(ji, jj, jk) + zcof1 * &
+             (zdkt(ji+1, jj) + zdk1t(ji, jj) + zdk1t(ji + 1, jj) + &
+             zdkt(ji, jj))) * umask(ji, jj, jk)
       END DO
     END DO
     DO jj = 2, jpjm1
       DO ji = fs_2, fs_jpim1
-        pta(ji, jj, jk, jn) = pta(ji, jj, jk, jn) + zsign * (zftu(ji, jj, jk) - zftu(ji - 1, jj, jk) + zftv(ji, jj, jk) - zftv(ji, jj - 1, jk)) * r1_e1e2t(ji, jj) / e3t_n(ji, jj, jk)
+         pta(ji, jj, jk, jn) = pta(ji, jj, jk, jn) + zsign * (zftu(ji, jj, jk) &
+              - zftu(ji - 1, jj, jk) + zftv(ji, jj, jk) - zftv(ji, jj-1, jk)) &
+              * r1_e1e2t(ji, jj) / e3t_n(ji, jj, jk)
       END DO
     END DO
   END DO
