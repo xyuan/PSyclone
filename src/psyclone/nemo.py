@@ -513,12 +513,18 @@ class NemoKern(Kern):
         # Keep a pointer to the original loop in the AST
         self._loop = loop
 
-        if not isinstance(loop.content[0], Nonlabel_Do_Stmt):
-            raise InternalError("Expecting Nonlabel_Do_Stmt as first child "
-                                "of Block_Nonlabel_Do_Construct but "
-                                "got {0}".format(type(loop.content[0])))
+        # Search for start of loop (allow for Comment nodes)
+        found_start = False
+        for idx, child in enumerate(loop.content):
+            if isinstance(child, Nonlabel_Do_Stmt):
+                found_start = True
+                break
+        if not found_start:
+            raise InternalError("Failed to find Nonlabel_Do_Stmt in children "
+                                "of Block_Nonlabel_Do_Construct:\n"
+                                "{0}".format(str(loop)))
         self._body = []
-        for content in loop.content[1:]:
+        for content in loop.content[idx:]:
             if isinstance(content, End_Do_Stmt):
                 break
             self._body.append(content)
@@ -813,12 +819,15 @@ class NemoIfBlock(IfBlock, ASTProcessor):
         super(NemoIfBlock, self).__init__(parent=parent)
         # Keep a ptr to the corresponding node in the AST
         self._ast = ast
-        # Check that the fparser2 AST has the expected structure
-        if not isinstance(ast.content[0], Fortran2003.If_Then_Stmt):
+        # Check that the fparser2 AST has the expected structure. We have to
+        # allow for Comment nodes.
+        found_if_then = False
+        for start_idx, child in enumerate(ast.content):
+            if isinstance(child, Fortran2003.If_Then_Stmt):
+                found_if_then = True
+                break
+        if not found_if_then:
             raise InternalError("Failed to find opening if then statement: "
-                                "{0}".format(str(ast)))
-        if not isinstance(ast.content[-1], Fortran2003.End_If_Stmt):
-            raise InternalError("Failed to find closing end if statement: "
                                 "{0}".format(str(ast)))
         clause_indices = []
         for idx, child in enumerate(ast.content):
@@ -830,9 +839,9 @@ class NemoIfBlock(IfBlock, ASTProcessor):
                 clause_indices.append(idx)
         # Create the body of the main If
         end_idx = clause_indices[1]
-        self._condition = str(ast.content[0].items[0])
+        self._condition = str(ast.content[start_idx].items[0])
         self.process_nodes(parent=self,
-                           nodes=ast.content[1:end_idx],
+                           nodes=ast.content[start_idx+1:end_idx],
                            nodes_parent=ast)
         # Now deal with any other clauses (i.e. "else if" or "else")
         # An If block has one fewer clauses than it has control statements
