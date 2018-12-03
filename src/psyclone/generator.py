@@ -368,12 +368,6 @@ def main(args):
     else:
         print("Transformed algorithm code:\n%s" % alg_str)
 
-    # Hack to put back any INCLUDE statements that we turned into comments
-    # inside fparser2
-    # TODO remove this code!
-    if psy_str:
-        psy_str = psy_str.replace("!UNTREATED ", "")
-
     if not psy_str:
         # empty file so do not output anything
         pass
