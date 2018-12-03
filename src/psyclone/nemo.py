@@ -359,7 +359,10 @@ class NemoCodeBlock(Node):
         # with this block. We make a copy of the contents of the list because
         # the list itself is a temporary product of the process of converting
         # from the fparser2 AST to the PSyIRe.
+        if not statements:
+            raise GenerationError("NemoCodeBlock must have content.")
         self._statements = statements[:]
+        self._ast = self._statements[0]
 
     @property
     def coloured_text(self):

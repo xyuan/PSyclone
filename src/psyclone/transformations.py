@@ -769,11 +769,12 @@ class ACCLoopTrans(ParallelLoopTrans):
                                      being used.
         '''
         from psyclone.gocean1p0 import GOSchedule
+        from psyclone.nemo import NemoSchedule
         sched = node.root
-        if not isinstance(sched, GOSchedule):
+        if not isinstance(sched, (GOSchedule, NemoSchedule)):
             raise NotImplementedError(
                 "OpenACC loop transformations are currently only supported "
-                "for the gocean 1.0 API")
+                "for the gocean 1.0 and nemo APIs")
         super(ACCLoopTrans, self)._validate(node, collapse)
 
     def apply(self, node, collapse=None, independent=True):
@@ -1591,11 +1592,12 @@ class ACCParallelTrans(ParallelRegionTrans):
                                      being used.
         '''
         from psyclone.gocean1p0 import GOSchedule
+        from psyclone.nemo import NemoSchedule
         sched = node_list[0].root
-        if not isinstance(sched, GOSchedule):
+        if not isinstance(sched, (GOSchedule, NemoSchedule)):
             raise NotImplementedError(
                 "OpenACC parallel regions are currently only "
-                "supported for the gocean 1.0 API")
+                "supported for the gocean 1.0 and nemo APIs")
         super(ACCParallelTrans, self)._validate(node_list)
 
 
@@ -2672,3 +2674,79 @@ class NemoExplicitLoopTrans(Transformation):
             raise TransformationError(
                 "Cannot apply NemoExplicitLoopTrans to something that is "
                 "not a NemoImplicitLoop (got {0})".format(type(loop)))
+
+
+class ACCKernelsTrans(Transformation):
+    '''
+    Add a "!$acc kernels" directive to the start of a NEMO schedule
+    (causing it to be compiled for the OpenACC accelerator device).
+    For example:
+
+    >>> from psyclone.parse import parse
+    >>> from psyclone.psyGen import PSyFactory
+    >>> api = "NEMO"
+****************** TBD ************************
+    >>> filename = "nemolite2d_alg.f90"
+    >>> ast, invokeInfo = parse(filename, api=api)
+    >>> psy = PSyFactory(api).create(invokeInfo)
+    >>>
+    >>> from psyclone.transformations import ACCRoutineTrans
+    >>> rtrans = ACCRoutineTrans()
+    >>>
+    >>> schedule = psy.invokes.get('invoke_0').schedule
+    >>> schedule.view()
+    >>> kern = schedule.children[0].children[0].children[0]
+    >>> # Transform the kernel
+    >>> newkern, _ = rtrans.apply(kern)
+
+    '''
+    @property
+    def name(self):
+        '''
+        :returns: the name of this transformation class.
+        :rtype: str
+        '''
+        return "ACCKernelsTrans"
+
+    def apply(self, node_list):
+        '''
+        Add an 
+        '!$acc kernels' OpenACC directive to the start of a NEMO api schedule
+
+        :param kern: The kernel object to transform.
+        :type kern: :py:class:`psyclone.psyGen.Call`
+        :returns: (transformed kernel, memento of transformation)
+        :rtype: 2-tuple of (:py:class:`psyclone.psyGen.Kern`, \
+                :py:class:`psyclone.undoredo.Memento`).
+        :raises TransformationError: if we fail to find the subroutine \
+                                     corresponding to the kernel object.
+        '''
+        from fparser.two.Fortran2003 import Subroutine_Subprogram, \
+            Subroutine_Stmt, Specification_Part, Type_Declaration_Stmt, \
+            Implicit_Part, Comment
+        from fparser.two.utils import walk_ast
+        from fparser.common.readfortran import FortranStringReader
+
+        # Keep a record of this transformation
+        from psyclone.undoredo import Memento
+        keep = Memento(node_list[:], self)
+
+        parent = node_list[0].parent
+        schedule = node_list[0].root
+
+        # Create the directive and insert it. Take a copy of the list
+        # as it may just be a reference to the parent.children list
+        # that we are about to modify.
+        from psyclone.psyGen import ACCKernelsDirective
+        directive = ACCKernelsDirective(parent=parent,
+                                           children=node_list[:])
+        start_index = parent.children.index(node_list[0])
+
+        for child in directive.children:
+            parent.children.remove(child)
+            child.parent = directive
+
+        parent.children.insert(start_index,directive)
+
+        # Return the now modified kernel
+        return schedule, keep

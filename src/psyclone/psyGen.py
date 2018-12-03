@@ -1443,6 +1443,37 @@ class ACCDirective(Directive):
         '''
         return "ACC_directive_" + str(self.abs_position)
 
+    def add_region(self, start_text, end_text=None):
+        from fparser.common.readfortran import FortranStringReader
+        from fparser.two.Fortran2003 import Comment
+        # Check that we haven't already been called
+        if self._ast:
+            Node.update(self)
+            return
+
+        parent = self._parent
+        while parent:
+            if hasattr(parent._ast, "content"):
+                break
+            parent = parent._parent
+        parent_ast = parent._ast
+
+        ast_start_index = parent_ast.content.index(self.children[0]._ast)
+
+        if end_text:
+            ast_end_index = parent_ast.content.index(self.children[-1]._ast)
+            directive = Comment(FortranStringReader(end_text,
+                                                    ignore_comments=False))
+            parent_ast.content.insert(ast_end_index+1, directive)
+
+        directive = Comment(FortranStringReader(start_text,
+                                                ignore_comments=False))
+        parent_ast.content.insert(ast_start_index, directive)
+
+        self._ast = directive
+
+        Node.update(self)
+
 
 @six.add_metaclass(abc.ABCMeta)
 class ACCDataDirective(ACCDirective):
@@ -1679,6 +1710,12 @@ class ACCParallelDirective(ACCDirective):
                     scalars.append(arg)
         return scalars
 
+    def update(self):
+
+        start_text = "!$ACC PARALLEL"
+        end_text = "!$ACC END PARALLEL"
+        self.add_region(start_text, end_text)
+
 
 class ACCLoopDirective(ACCDirective):
     '''
@@ -1758,6 +1795,18 @@ class ACCLoopDirective(ACCDirective):
 
         for child in self.children:
             child.gen_code(parent)
+
+    def update(self):
+
+        from fparser.common.readfortran import FortranStringReader
+        from fparser.two.Fortran2003 import Comment
+
+        text = "!$ACC LOOP"
+        if self._independent:
+            text += ", INDEPENDENT"
+        if self._collapse:
+            text += ", COLLAPSE({0})".format(self._collapse)
+        self.add_region(text)
 
 
 class OMPDirective(Directive):
@@ -1955,6 +2004,7 @@ class OMPParallelDirective(OMPDirective):
         from fparser.two.Fortran2003 import Comment
         # Check that we haven't already been called
         if self._ast:
+            Node.update(self)
             return
         # Find the locations in which we must insert the begin/end
         # directives...
@@ -1982,6 +2032,8 @@ class OMPParallelDirective(OMPDirective):
         # to correct end_idx)
         self._ast = startdir
         self._parent._ast.content.insert(start_idx, self._ast)
+
+        Node.update(self)
 
 
 class OMPDoDirective(OMPDirective):
@@ -2162,6 +2214,7 @@ class OMPParallelDoDirective(OMPParallelDirective, OMPDoDirective):
         from fparser.two.Fortran2003 import Comment
         # Check that we haven't already been called
         if self._ast:
+            Node.update(self)
             return
         # Since this is an OpenMP (parallel) do, it can only be applied
         # to a single loop.
@@ -2209,6 +2262,9 @@ class OMPParallelDoDirective(OMPParallelDirective, OMPDoDirective):
         # to correct the location)
         self._ast = startdir
         parent.content.insert(start_idx, self._ast)
+
+        Node.update(self)
+
 
 
 class GlobalSum(Node):
@@ -3908,3 +3964,93 @@ class IfClause(IfBlock):
         :rtype: str
         '''
         return colored(self._clause_type, SCHEDULE_COLOUR_MAP["If"])
+
+
+class ACCKernelsDirective(ACCDirective):
+    ''' Class for the !$OMP PARALLEL DO directive. This inherits from
+        both OMPParallelDirective (because it creates a new OpenMP
+        thread-parallel region) and OMPDoDirective (because it
+        causes a loop to be parallelised). '''
+
+    def __init__(self, children=[], parent=None):
+        Node.__init__(self,
+                      children=children,
+                      parent=parent)
+
+    @property
+    def dag_name(self):
+        ''' Return the name to use in a dag for this node'''
+        return "ACC_kernels_" + str(self.abs_position)
+
+    def view(self, indent=0):
+        '''
+        Write out a textual summary of the OpenMP Parallel Do Directive
+        and then call the view() method of any children.
+
+        :param indent: Depth of indent for output text
+        :type indent: integer
+        '''
+        print(self.indent(indent) + self.coloured_text +
+              "[ACC Kernels]")
+        for entity in self._children:
+            entity.view(indent=indent + 1)
+
+    def gen_code(self, parent):
+        from psyclone.f2pygen import DirectiveGen
+
+        # We're not doing nested parallelism so make sure that this
+        # omp parallel do is not already within some parallel region
+
+        exit(1)
+        self._not_within_omp_parallel_region()
+
+        calls = self.reductions()
+        zero_reduction_variables(calls, parent)
+        private_str = self.list_to_string(self._get_private_list())
+        parent.add(DirectiveGen(parent, "omp", "begin", "parallel do",
+                                "default(shared), private({0}), "
+                                "schedule({1})".
+                                format(private_str, self._omp_schedule) +
+                                self._reduction_string()))
+        for child in self.children:
+            child.gen_code(parent)
+
+        # make sure the directive occurs straight after the loop body
+        position = parent.previous_loop()
+        parent.add(DirectiveGen(parent, "omp", "end", "parallel do", ""),
+                   position=["after", position])
+
+    def update(self):
+        '''
+        Updates the fparser2 AST by inserting nodes for this OpenMP
+        parallel do.
+
+        :raises GenerationError: if the existing AST doesn't have the \
+                                 correct structure to permit the insertion \
+                                 of the OpenMP parallel do.
+        '''
+        from fparser.common.readfortran import FortranStringReader
+        from fparser.two.Fortran2003 import Comment
+        # Check that we haven't already been called
+        if self._ast:
+            Node.update(self)
+            return
+
+        parent_ast = self.parent._ast
+
+        ast_start_index = parent_ast.content.index(self.children[0]._ast)
+        ast_end_index = parent_ast.content.index(self.children[-1]._ast)
+
+        text = ("!$ACC END KERNELS")
+        directive = Comment(FortranStringReader(text,
+                                                ignore_comments=False))
+        parent_ast.content.insert(ast_end_index+1, directive)
+
+        text = ("!$ACC KERNELS")
+        directive = Comment(FortranStringReader(text,
+                                                ignore_comments=False))
+        parent_ast.content.insert(ast_start_index, directive)
+
+        self._ast = directive
+
+        Node.update(self)

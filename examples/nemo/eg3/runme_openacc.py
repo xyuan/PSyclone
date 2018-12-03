@@ -34,48 +34,86 @@
 # -----------------------------------------------------------------------------
 # Authors: R. W. Ford and A. R. Porter, STFC Daresbury Lab
 
-'''A simple test script showing the introduction of OpenMP with PSyclone.
-In order to use it you must first install PSyclone. See README.md in the
-top-level psyclone directory.
+'''A simple test script showing the introduction of the OpenACC
+kernels, loop and parallel directives with PSyclone.  In order to use
+it you must first install PSyclone. See README.md in the top-level
+psyclone directory.
 
 Once you have psyclone installed, this script may be run by doing (you may
-need to make it executable first with chmod u+x ./runme_openmp.py):
+need to make it executable first with chmod u+x ./runme_openacc.py):
 
- >>> ./runme_openmp.py
+ >>> ./runme_openacc.py
 
 This should generate a lot of output, ending with generated
 Fortran.
+
 '''
 
 from __future__ import print_function
 from psyclone.parse import parse
 from psyclone.psyGen import PSyFactory, TransInfo
+from psyclone.nemo import NemoKern, NemoLoop
 
-if __name__ == "__main__":
-    from psyclone.nemo import NemoKern
-    API = "nemo"
-    _, INVOKEINFO = parse("../code/traldf_iso.F90", api=API)
-    PSY = PSyFactory(API).create(INVOKEINFO)
-    print(PSY.gen)
 
+def trans(psy):
+    '''A PSyclone-script compliant function. Demonstrates the application
+    of the Kernels, Parallel and Loop OpenACC directives to the
+    'tra_adv' code.
+
+    '''
     print("Invokes found:")
-    print(PSY.invokes.names)
+    print(psy.invokes.names)
 
-    SCHED = PSY.invokes.get('tra_ldf_iso').schedule
-    SCHED.view()
+    sched = psy.invokes.get('tra_adv').schedule
+    sched.view()
 
-    TRANS_INFO = TransInfo()
-    print(TRANS_INFO.list)
-    OMP_TRANS = TRANS_INFO.get_trans_name('OMPParallelLoopTrans')
+    trans_info = TransInfo()
+    print(trans_info.list)
 
-    for loop in SCHED.loops():
-        # TODO loop.kernel method needs extending to cope with
-        # multiple kernels
+    acc_trans = trans_info.get_trans_name('ACCKernelsTrans')
+
+    sched, _ = acc_trans.apply(sched.children)
+
+    sched.view()
+
+    acc_trans = trans_info.get_trans_name('ACCLoopTrans')
+
+    # Add loop directives over latitude and collapse when they are
+    # doubly nested with longitude inner. Default to independent. We
+    # need to extend our dependence analysis to perform checks.
+    count = 0
+    for loop in sched.loops():
+        kernels = loop.walk(loop.children, NemoKern)
+        if kernels and loop.loop_type == "lat":
+            count += 1
+            if count == 14:
+                # BUG: puts ACC declaration in the wrong place as the
+                # loop structures are the same.
+                continue
+            child = loop.children[0]
+            if isinstance(child, NemoLoop) and child.loop_type == "lon":
+                sched, _ = acc_trans.apply(loop, collapse=2)
+            else:
+                sched, _ = acc_trans.apply(loop)
+
+    sched.view()
+
+    acc_trans = trans_info.get_trans_name('ACCParallelTrans')
+
+    for loop in sched.loops():
         kernels = loop.walk(loop.children, NemoKern)
         if kernels and loop.loop_type == "levels":
-            sched, _ = OMP_TRANS.apply(loop)
+            sched, _ = acc_trans.apply(loop)
 
-    SCHED.view()
+    sched.view()
 
-    PSY.invokes.get('tra_ldf_iso').schedule = SCHED
+    psy.invokes.get('tra_adv').schedule = sched
+    print(psy.gen)
+
+
+if __name__ == "__main__":
+    API = "nemo"
+    _, INVOKEINFO = parse("../code/tra_adv.F90", api=API)
+    PSY = PSyFactory(API).create(INVOKEINFO)
     print(PSY.gen)
+    trans(PSY)
