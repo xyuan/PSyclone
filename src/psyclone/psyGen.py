@@ -1443,7 +1443,7 @@ class ACCDirective(Directive):
         '''
         return "ACC_directive_" + str(self.abs_position)
 
-    def add_region(self, start_text, end_text=None):
+    def add_region(self, start_text, end_text=None, start_index=None):
         from fparser.common.readfortran import FortranStringReader
         from fparser.two.Fortran2003 import Comment
         # Check that we haven't already been called
@@ -1458,7 +1458,10 @@ class ACCDirective(Directive):
             parent = parent._parent
         parent_ast = parent._ast
 
-        ast_start_index = parent_ast.content.index(self.children[0]._ast)
+        if start_index is None:
+            ast_start_index = parent_ast.content.index(self.children[0]._ast)
+        else:
+            ast_start_index = start_index
 
         if end_text:
             ast_end_index = parent_ast.content.index(self.children[-1]._ast)
@@ -1731,9 +1734,10 @@ class ACCLoopDirective(ACCDirective):
                              to the loop directive.
     '''
     def __init__(self, children=None, parent=None, collapse=None,
-                 independent=True):
+                 independent=True, sequential=False):
         self._collapse = collapse
         self._independent = independent
+        self._sequential = sequential
         super(ACCLoopDirective, self).__init__(children, parent)
 
     @property
@@ -1751,10 +1755,13 @@ class ACCLoopDirective(ACCDirective):
         :param int indent: amount to indent output by
         '''
         text = self.indent(indent)+self.coloured_text+"[ACC Loop"
-        if self._collapse:
-            text += ", collapse={0}".format(self._collapse)
-        if self._independent:
-            text += ", independent"
+        if self._sequential:
+            text += ", seq"
+        else:
+            if self._collapse:
+                text += ", collapse={0}".format(self._collapse)
+            if self._independent:
+                text += ", independent"
         text += "]"
         print(text)
         for entity in self._children:
@@ -1785,10 +1792,13 @@ class ACCLoopDirective(ACCDirective):
 
         # Add any clauses to the directive
         options = []
-        if self._collapse:
-            options.append("collapse({0})".format(self._collapse))
-        if self._independent:
-            options.append("independent")
+        if self._sequential:
+            options.append("seq")
+        else:
+            if self._collapse:
+                options.append("collapse({0})".format(self._collapse))
+            if self._independent:
+                options.append("independent")
         options_str = " ".join(options)
 
         parent.add(DirectiveGen(parent, "acc", "begin", "loop", options_str))
@@ -1802,10 +1812,13 @@ class ACCLoopDirective(ACCDirective):
         from fparser.two.Fortran2003 import Comment
 
         text = "!$ACC LOOP"
-        if self._independent:
-            text += ", INDEPENDENT"
-        if self._collapse:
-            text += ", COLLAPSE({0})".format(self._collapse)
+        if self._sequential:
+            text += " SEQ"
+        else:
+            if self._independent:
+                text += " INDEPENDENT"
+            if self._collapse:
+                text += " COLLAPSE({0})".format(self._collapse)
         self.add_region(text)
 
 
