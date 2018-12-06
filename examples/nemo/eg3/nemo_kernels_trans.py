@@ -34,32 +34,48 @@
 # -----------------------------------------------------------------------------
 # Authors: R. W. Ford and A. R. Porter, STFC Daresbury Lab
 
-'''A simple test script showing the introduction of the OpenACC
-kernels, loop and parallel directives with PSyclone.  In order to use
+'''A transformation script that seeks to apply OpenACC DATA and KERNELS
+directives to NEMO style code.  In order to use
 it you must first install PSyclone. See README.md in the top-level
 psyclone directory.
 
-Once you have psyclone installed, this script may be run by doing (you may
-need to make it executable first with chmod u+x ./runme_openacc.py):
+Once you have psyclone installed, this may be used by doing:
 
- >>> ./runme_openacc.py
+ $ psyclone -api nemo -s nemo_kernels_trans.py some_source_file.f90
 
-This should generate a lot of output, ending with generated
-Fortran.
+This should produce a lot of output, ending with generated
+Fortran. Note that the Fortran source files provided to PSyclone must
+have already been preprocessed (if required).
 
 '''
 
 from __future__ import print_function
 from psyclone.psyGen import TransInfo
-from psyclone.nemo import NemoKern, NemoLoop, NemoCodeBlock
 
 
-ACC_TRANS = TransInfo().get_trans_name('ACCKernelsTrans')
+# Get the PSyclone transformations we will use
+ACC_KERN_TRANS = TransInfo().get_trans_name('ACCKernelsTrans')
+ACC_DATA_TRANS = TransInfo().get_trans_name('ACCDataTrans')
+
 
 def valid_kernel(node):
-    if isinstance(node, NemoCodeBlock):
+    '''
+    Whether the sub-tree that has `node` at its root is eligible to be
+    enclosed within an OpenACC KERNELS directive.
+
+    :param node: the node in the PSyIRe to check.
+    :type node: :py:class:`psyclone.psyGen.Node`
+
+    :returns: True if the sub-tree can be enclosed in a KERNELS region.
+    :rtype: bool
+
+    '''
+    from psyclone.nemo import NemoLoop, NemoIfBlock, NemoCodeBlock, \
+        NemoIfClause
+    excluded_nodes = (NemoCodeBlock, NemoIfBlock, NemoIfClause)
+    if isinstance(node, excluded_nodes):
         return False
-    code_blocks = node.walk(node.children, NemoCodeBlock)
+    code_blocks = node.walk(node.children, excluded_nodes)
     if code_blocks:
         return False
     return True
@@ -67,32 +83,37 @@ def valid_kernel(node):
 
 def add_kernels(children):
     '''
+    Walks through the PSyIRe inserting OpenACC KERNELS directives at as
+    high a level as possible.
+
     :param children: list of sibling Nodes in PSyIRe that are candidates for \
                      inclusion in an ACC KERNELS region.
     :type children: list of :py:class:`psyclone.psyGen.Node`
     '''
     if not children:
         return
+
     node_list = []
     for child in children[:]:
         # Can this node be included in a kernels region?
         if not valid_kernel(child):
             if node_list:
-                _, _ = ACC_TRANS.apply(node_list)
+                _, _ = ACC_KERN_TRANS.apply(node_list, default_present=True)
                 node_list = []
-            # recurse
+            # It can't so go down a level and try again
             add_kernels(child.children)
         else:
             node_list.append(child)
     if node_list:
-        _, _ = ACC_TRANS.apply(node_list)
+        _, _ = ACC_KERN_TRANS.apply(node_list, default_present=True)
 
 
 def trans(psy):
-    '''A PSyclone-script compliant function. Demonstrates the application
-    of the Kernels, Parallel and Loop OpenACC directives to the
-    'tra_adv' code.
+    '''A PSyclone-script compliant transformation function. Applies
+    OpenACC 'kernels' and 'data' directives to NEMO code.
 
+    :param psy: The PSy layer object to apply transformations to.
+    :type psy: :py:class:`psyclone.psyGen.PSy`
     '''
     print("Invokes found:")
     print(psy.invokes.names)
@@ -101,26 +122,26 @@ def trans(psy):
 
         sched = invoke.schedule
         sched.view()
-        #import pdb; pdb.set_trace()
+
         add_kernels(sched.children)
         sched.view()
-        # Enclose all children in the schedule within 'kernels'. We must ensure
-        # that the allocate/deallocate's are done before/after the kernels
-        # directive and so we search for the first and last loops
-        if 0:
-            first_idx = -1
-            last_idx = -1
-            for idx, child in enumerate(sched.children):
-                if isinstance(child, NemoLoop):
-                    if first_idx == -1:
-                        first_idx = idx
-                    last_idx = idx
-            print("first, last = ", first_idx, last_idx)
-            if first_idx == -1:
-                # We didn't find any loops so we skip this invoke
-                continue
-            sched, _ = ACC_TRANS.apply(sched.children[first_idx:last_idx+1])
 
-            sched.view()
+        # Enclose all children in the schedule within a data region. We must
+        # ensure that the allocate/deallocate's are done outside this region
+        # and so we search for the first and last loops
+        first_idx = -1
+        last_idx = -1
+        for idx, child in enumerate(sched.children):
+            if not isinstance(child, NemoCodeBlock):
+                first_idx = idx
+                break
+        for child in reversed(sched.children):
+            if not isinstance(child, NemoCodeBlock):
+                last_idx = sched.children.index(child)
+                break
+        print("first, last = ", first_idx, last_idx)
+        sched, _ = ACC_DATA_TRANS.apply(sched.children[first_idx:last_idx+1])
+
+        sched.view()
 
         invoke.schedule = sched
