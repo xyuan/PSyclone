@@ -115,6 +115,7 @@ def trans(psy):
     :param psy: The PSy layer object to apply transformations to.
     :type psy: :py:class:`psyclone.psyGen.PSy`
     '''
+    from psyclone.nemo import NemoCodeBlock
     print("Invokes found:")
     print(psy.invokes.names)
 
@@ -140,7 +141,9 @@ def trans(psy):
                 last_idx = sched.children.index(child)
                 break
         print("first, last = ", first_idx, last_idx)
-        sched, _ = ACC_DATA_TRANS.apply(sched.children[first_idx:last_idx+1])
+        if first_idx > -1 and last_idx > -1:
+            sched, _ = ACC_DATA_TRANS.apply(
+                sched.children[first_idx:last_idx+1])
 
         sched.view()
 
