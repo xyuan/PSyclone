@@ -64,9 +64,7 @@ def trans(psy):
     print("Invokes found:")
     print(psy.invokes.names)
 
-    #sched = psy.invokes.get('tra_adv').schedule
-    #sched = psy.invokes.get('tra_ldf_iso').schedule
-    sched = psy.invokes.invoke_list[0].schedule
+    sched = psy.invokes.get('tra_adv').schedule
     sched.view()
 
     trans_info = TransInfo()
@@ -74,9 +72,12 @@ def trans(psy):
 
     acc_trans = trans_info.get_trans_name('ACCKernelsTrans')
 
-    sched, _ = acc_trans.apply(sched.children, default_present=True)
+    sched, _ = acc_trans.apply(sched.children[1:-1])
 
     sched.view()
+    print(psy.gen)
+    print ("END OF testme.py")
+    exit(0)
 
     acc_trans = trans_info.get_trans_name('ACCLoopTrans')
 
@@ -111,21 +112,17 @@ def trans(psy):
 
     acc_trans = trans_info.get_trans_name('ACCDataTrans')
 
-    sched, _ = acc_trans.apply(sched.children)
+    sched, _ = acc_trans.apply(sched)
 
     sched.view()
 
-    #psy.invokes.get('tra_adv').schedule = sched
-    #psy.invokes.get('tra_ldf_iso').schedule = sched
-    sched = psy.invokes.invoke_list[0].schedule
+    psy.invokes.get('tra_adv').schedule = sched
     print(psy.gen)
 
 
 if __name__ == "__main__":
     API = "nemo"
-    # Choose the example by uncommenting the one you want to run
     _, INVOKEINFO = parse("../code/tra_adv.F90", api=API)
-    #_, INVOKEINFO = parse("../code/traldf_iso.F90", api=API)
     PSY = PSyFactory(API).create(INVOKEINFO)
     print(PSY.gen)
     trans(PSY)
