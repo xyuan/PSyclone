@@ -122,6 +122,9 @@ def trans(psy):
     for invoke in psy.invokes.invoke_list:
 
         sched = invoke.schedule
+        if not sched:
+            print("Invoke {0} has no Schedule! Skipping...".format(invoke.name))
+            continue
         sched.view()
 
         add_kernels(sched.children)
@@ -140,7 +143,6 @@ def trans(psy):
             if not isinstance(child, NemoCodeBlock):
                 last_idx = sched.children.index(child)
                 break
-        print("first, last = ", first_idx, last_idx)
         if first_idx > -1 and last_idx > -1:
             sched, _ = ACC_DATA_TRANS.apply(
                 sched.children[first_idx:last_idx+1])
