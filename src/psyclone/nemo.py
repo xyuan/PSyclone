@@ -455,7 +455,7 @@ class NemoKern(Kern):
         :rtype: bool
         '''
         from fparser.two.Fortran2003 import Subscript_Triplet,  \
-            Block_Nonlabel_Do_Construct, Write_Stmt, Read_Stmt
+            Block_Nonlabel_Do_Construct, Write_Stmt, Read_Stmt, Call_Stmt
         child_loops = walk_ast(node.content,
                                [Block_Nonlabel_Do_Construct, Write_Stmt,
                                 Read_Stmt, Call_Stmt])
