@@ -261,3 +261,42 @@ def test_replicated_loop():
             "    END DO\n"
             "  END DO\n"
             "  !$ACC END DATA") in gen_code
+
+
+def test_data_ref():
+    '''Check code generation with an array accessed via a derived type.
+
+    '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "data_ref.f90"),
+                           api=API, line_length=False)
+    psy = PSyFactory(API, distributed_memory=False).create(invoke_info)
+    schedule = psy.invokes.get('data_ref').schedule
+    acc_trans = TransInfo().get_trans_name('ACCDataTrans')
+    schedule, _ = acc_trans.apply(schedule.children)
+    gen_code = str(psy.gen)
+    print (gen_code)
+
+    assert ("!$ACC DATA COPYIN(a) COPYOUT(prof,prof%npind)") in gen_code
+
+
+def test_kind_parameter():
+    ''' Check that we don't attempt to put kind parameters into the list
+    of variables to copyin/out. '''
+    from fparser.two.parser import ParserFactory
+    from fparser.common.readfortran import FortranStringReader
+    parser = ParserFactory().create()
+    reader = FortranStringReader("program kind_param\n"
+                                 "real(kind=wp) :: sto_tmp(5)\n"
+                                 "do ji = 1,jpj\n"
+                                 "sto_tmp(ji) = 0._wp\n"
+                                 "end do\n"
+                                 "end program kind_param\n")
+    code = parser(reader)
+    psy = PSyFactory(API, distributed_memory=False).create(code)
+    schedule = psy.invokes.invoke_list[0].schedule
+    acc_trans = TransInfo().get_trans_name('ACCDataTrans')
+    schedule, _ = acc_trans.apply(schedule.children[0:1])
+    schedule.view()
+    gen_code = str(psy.gen)
+    assert "copyin(wp)" not in gen_code.lower()
+
