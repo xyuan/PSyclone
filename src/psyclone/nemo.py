@@ -458,7 +458,7 @@ class NemoKern(Kern):
             Block_Nonlabel_Do_Construct, Write_Stmt, Read_Stmt
         child_loops = walk_ast(node.content,
                                [Block_Nonlabel_Do_Construct, Write_Stmt,
-                                Read_Stmt])
+                                Read_Stmt, Call_Stmt])
         if child_loops:
             # A kernel cannot contain other loops or reads or writes
             return False
