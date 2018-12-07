@@ -116,6 +116,7 @@ def trans(psy):
     :type psy: :py:class:`psyclone.psyGen.PSy`
     '''
     from psyclone.nemo import NemoCodeBlock
+    from psyclone.psyGen import ACCDirective
     print("Invokes found:")
     print(psy.invokes.names)
 
@@ -129,6 +130,11 @@ def trans(psy):
 
         add_kernels(sched.children)
         sched.view()
+
+        directives = sched.walk(sched.children, ACCDirective)
+        if not directives:
+            # We only need a data region if we've added any directives
+            continue
 
         # Enclose all children in the schedule within a data region. We must
         # ensure that the allocate/deallocate's are done outside this region
