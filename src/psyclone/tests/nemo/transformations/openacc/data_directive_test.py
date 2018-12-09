@@ -66,13 +66,13 @@ def test_explicit():
     schedule, _ = acc_trans.apply(schedule.children)
     gen_code = str(psy.gen)
 
-    assert ("  REAL, DIMENSION(jpi, jpj, jpk) :: umask\n"
+    assert ("  ! Test code with explicit NEMO-style do loop\n"
             "  !$ACC DATA COPYOUT(umask)\n"
             "  DO jk = 1, jpk") in gen_code
 
     assert ("  END DO\n"
             "  !$ACC END DATA\n"
-            "END PROGRAM explicit_do") in gen_code
+            "") in gen_code
 
 
 def test_explicit_directive():
@@ -90,7 +90,7 @@ def test_explicit_directive():
     schedule, _ = acc_trans.apply(schedule.children)
     gen_code = str(psy.gen)
 
-    assert ("  REAL, DIMENSION(jpi, jpj, jpk) :: umask\n"
+    assert ("  ! Test code with explicit NEMO-style do loop\n"
             "  !$ACC DATA COPYOUT(umask)\n"
             "  !$ACC KERNELS DEFAULT(PRESENT)\n"
             "  DO jk = 1, jpk") in gen_code
@@ -98,7 +98,7 @@ def test_explicit_directive():
     assert ("  END DO\n"
             "  !$ACC END KERNELS\n"
             "  !$ACC END DATA\n"
-            "END PROGRAM explicit_do") in gen_code
+            "") in gen_code
 
 
 def test_code_block():
@@ -111,13 +111,13 @@ def test_code_block():
     schedule, _ = acc_trans.apply(schedule.children)
     gen_code = str(psy.gen)
 
-    assert ("  INTEGER :: psy_jk\n"
+    assert ("\n"
             "  !$ACC DATA COPYOUT(umask)\n"
             "  WRITE(*, FMT = *) \"Hello world\"") in gen_code
 
     assert ("  DEALLOCATE(umask)\n"
             "  !$ACC END DATA\n"
-            "END PROGRAM code_block") in gen_code
+            "") in gen_code
 
 def test_code_block_noalloc():
     '''Check code generation for a mixture of loops and code blocks,
@@ -134,11 +134,11 @@ def test_code_block_noalloc():
 
     assert ("  ALLOCATE(umask(jpi, jpj, jpk))\n"
             "  !$ACC DATA COPYOUT(umask)\n"
-            "  DO psy_jk = 1, jpk, 1") in gen_code
+            "  DO jk = 1, jpk") in gen_code
 
     assert ("  END DO\n"
             "  !$ACC END DATA\n"
-            "  WRITE(*, FMT = *) \"Goodbye world\"") in gen_code
+            "") in gen_code
 
 
 def test_code_block_noalloc_kernels():
@@ -156,16 +156,16 @@ def test_code_block_noalloc_kernels():
     acc_trans = TransInfo().get_trans_name('ACCKernelsTrans')
     schedule, _ = acc_trans.apply(schedule.children[1].children[0:3], default_present=True)
     gen_code = str(psy.gen)
-    
+
     assert ("  ALLOCATE(umask(jpi, jpj, jpk))\n"
             "  !$ACC DATA COPYOUT(umask)\n"
             "  !$ACC KERNELS DEFAULT(PRESENT)\n"
-            "  DO psy_jk = 1, jpk, 1") in gen_code
+            "  DO jk = 1, jpk") in gen_code
 
     assert ("  END DO\n"
             "  !$ACC END KERNELS\n"
             "  !$ACC END DATA\n"
-            "  DO iloop = 1, jpi") in gen_code
+            "") in gen_code
 
 
 def test_single_code_block():
@@ -197,11 +197,12 @@ def test_array_syntax():
     schedule, _ = acc_trans.apply(schedule.children)
     gen_code = str(psy.gen)
 
-    assert ("  INTEGER :: psy_ji\n"
+    assert ("  REAL(KIND = wp), DIMENSION(jpi, jpj, jpk) :: zdit, zdjt, "
+            "zftu, zftv, ztfw\n"
             "  !$ACC DATA COPYOUT(zftv,zftu)\n"
-            "  DO psy_jk = 1, jpk, 1") in gen_code
+            "  zftv(:, :, :) = 0.0D0") in gen_code
 
-    assert ("  END DO\n"
+    assert ("  zftu(:, :, 1) = 1.0D0\n"
             "  !$ACC END DATA\n"
             "END SUBROUTINE tra_ldf_iso") in gen_code
 
@@ -249,18 +250,10 @@ def test_replicated_loop():
     gen_code = str(psy.gen)
 
     assert ("  !$ACC DATA COPYOUT(zwx)\n"
-            "  DO psy_jj = 1, jpj, 1\n"
-            "    DO psy_ji = 1, jpi, 1\n"
-            "      zwx(psy_ji, psy_jj) = 0.E0\n"
-            "    END DO\n"
-            "  END DO\n"
+            "  zwx(:, :) = 0.E0\n"
             "  !$ACC END DATA\n"
             "  !$ACC DATA COPYOUT(zwx)\n"
-            "  DO psy_jj = 1, jpj, 1\n"
-            "    DO psy_ji = 1, jpi, 1\n"
-            "      zwx(psy_ji, psy_jj) = 0.E0\n"
-            "    END DO\n"
-            "  END DO\n"
+            "  zwx(:, :) = 0.E0\n"
             "  !$ACC END DATA") in gen_code
 
 
