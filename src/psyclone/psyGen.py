@@ -66,6 +66,43 @@ except ImportError:
         '''
         return text
 
+import collections
+
+class OrderedSet(collections.OrderedDict, collections.MutableSet):
+
+    def update(self, *args, **kwargs):
+        if kwargs:
+            raise TypeError("update() takes no keyword arguments")
+
+        for s in args:
+            for e in s:
+                 self.add(e)
+
+    def add(self, elem):
+        self[elem] = None
+
+    def discard(self, elem):
+        self.pop(elem, None)
+
+    def __le__(self, other):
+        return all(e in other for e in self)
+
+    def __lt__(self, other):
+        return self <= other and self != other
+
+    def __ge__(self, other):
+        return all(e in self for e in other)
+
+    def __gt__(self, other):
+        return self >= other and self != other
+
+    def __repr__(self):
+        return 'OrderedSet([%s])' % (', '.join(map(repr, self.keys())))
+
+    def __str__(self):
+        return '{%s}' % (', '.join(map(repr, self.keys())))
+
+
 # The types of 'intent' that an argument to a Fortran subroutine
 # may have
 FORTRAN_INTENT_NAMES = ["inout", "out", "in"]
@@ -1516,7 +1553,7 @@ class ACCEnterDataDirective(ACCDirective):
     :type parent: :py:class:`psyclone.psyGen.Node`.
     '''
     def __init__(self, children=None, parent=None):
-        super(ACCDataDirective, self).__init__(children, parent)
+        super(ACCEnterDataDirective, self).__init__(children, parent)
         self._acc_dirs = None  # List of parallel directives
 
     def view(self, indent=0):
@@ -1655,7 +1692,7 @@ class ACCParallelDirective(ACCDirective):
         # We can't use Node.ancestor() because the data directive does
         # not have children. Instead, we go back up to the Schedule and
         # walk down from there.
-        nodes = self.root.walk(self.root.children, ACCDataDirective)
+        nodes = self.root.walk(self.root.children, ACCEnterDataDirective)
         if len(nodes) != 1:
             raise GenerationError(
                 "A Schedule containing an ACC parallel region must also "
@@ -4071,35 +4108,6 @@ class ACCKernelsDirective(ACCDirective):
         ast_end_index = object_index(parent_ast.content,
                                      self.children[-1]._ast)
 
-        writers = set()
-        from fparser.two.Fortran2003 import Name, Assignment_Stmt, Part_Ref, \
-            Section_Subscript_List
-        from fparser.two.utils import walk_ast
-        for node in walk_ast(parent_ast.content[ast_start_index:ast_end_index]):
-            if isinstance(node, Assignment_Stmt):
-                lhs = node.items[0]
-                if isinstance(lhs, Name):
-                    writers.add(lhs.string)
-                elif isinstance(lhs, Part_Ref):
-                    name = lhs.items[0]
-                    writers.add(name.string)
-                    #subscript_info = lhs.items[1]
-                    #if isinstance(subscript_info, Name):
-                    #    num_subscripts = 1
-                    #elif isinstance(subscript_info, Section_Subscript_List):
-                    #    num_subscripts = len(subscript_info.items)
-                    #else:
-                    #    print ("1: Unexpected node '{0}': '{1}'".
-                    #           format(type(subscript_info),
-                    #                  str(subscript_info)))
-                    #    exit(1)
-                else:
-                    print ("2: Unexpected node '{0}': '{1}'".format(type(lhs),
-                                                                    str(lhs)))
-                    exit(1)
-                equals = node.items[1]
-                rhs = node.items[2]
-
         # In the fparser2 AST, a directive is just a comment and does not
         # have children. This means we can end up inserting the 'end kernels'
         # directive between a previous directive and the loop to which it
@@ -4129,7 +4137,7 @@ class ACCKernelsDirective(ACCDirective):
             text += " DEFAULT(PRESENT)"
         else:
             if writers:
-                text += " COPYIN({0})".format(" ".join(writers))
+                text += " COPYIN({0})".format(" ".join("TBD"))
         directive = Comment(FortranStringReader(text,
                                                 ignore_comments=False))
         parent_ast.content.insert(ast_start_index, directive)
@@ -4221,35 +4229,69 @@ class ACCDataDirective(ACCDirective):
             ast_end_index = object_index(parent_ast.content,
                                          self.children[-1]._ast)
 
-        readers = set()
-        writers = set()
-        loop_vars = []
+        readers = OrderedSet()
+        writers = OrderedSet()
+        #loop_vars = []
         structure_name_str = None
         from fparser.two.Fortran2003 import Name, Assignment_Stmt, Part_Ref, \
-            Section_Subscript_List, Loop_Control, Data_Ref
+            Section_Subscript_List, Loop_Control, Data_Ref, \
+            Structure_Constructor, Array_Section
         from fparser.two.utils import walk_ast
-        for node in walk_ast(parent_ast.content[ast_start_index:ast_end_index+1]):
-            if isinstance(node, Loop_Control):
-                loop_vars.append(node.items[1][0].string.upper())
+        for node in walk_ast(
+                parent_ast.content[ast_start_index:ast_end_index+1]):
+            #if isinstance(node, Loop_Control):
+                # keep a list of loop variables
+                #loop_vars.append(node.items[1][0].string.upper())
             if isinstance(node, Assignment_Stmt):
+                # found lhs = rhs
                 lhs = node.items[0]
+                equals = node.items[1]
+                rhs = node.items[2]
+                # do RHS first as we cull readers
+                # after writers but want to keep a = a + ... as the
+                # RHS is computed before assigning to the LHS
+                for node2 in walk_ast([rhs]):
+                    if isinstance(node2, Part_Ref):
+                        name = node2.items[0].string
+                        if name.upper() not in fortran_intrinsics:
+                            if name not in writers:
+                                readers.add(name)
+                    #print (type(node))
+                    #if isinstance(node, Structure_Constructor):
+                    #    skip_name = True
+                    #if isinstance(node, Name):
+                    #    name = node.string
+                    #    if name.upper() not in fortran_intrinsics and \
+                    #       name.upper() not in loop_vars:
+                    #        if name not in writers:
+                    #            # It is read first so needs to be
+                    #            # copied in
+                    #            if skip_name:
+                    #                skip_name = False
+                    #            else:
+                    #                readers.add(node.string)
                 if isinstance(lhs, Data_Ref):
                     # This is a structure which contains an array access.
                     structure_name_str = lhs.items[0].string
                     writers.add(structure_name_str)
                     lhs = lhs.items[1]
-                if isinstance(lhs, Name):
-                    name_str = lhs.string
-                    if structure_name_str:
-                        name_str = "{0}%{1}".format(structure_name_str, name_str)
-                        structure_name_str = None
-                    writers.add(name_str)
-                elif isinstance(lhs, Part_Ref):
+                #if isinstance(lhs, Name):
+                    #name_str = lhs.string
+                    #if structure_name_str:
+                    #    name_str = "{0}%{1}".format(structure_name_str, name_str)
+                    #    structure_name_str = None
+                    #writers.add(name_str)
+                    # ignore
+                #elif isinstance(lhs, Part_Ref):
+                if isinstance(lhs, (Part_Ref, Array_Section)):
                     name_str = lhs.items[0].string
                     if structure_name_str:
                         name_str = "{0}%{1}".format(structure_name_str, name_str)
                         structure_name_str = None
                     writers.add(name_str)
+                #elif isinstance(lhs, Array_Section):
+                    #print ("Array sections not supported")
+                    #exit(1)
                     #subscript_info = lhs.items[1]
                     #if isinstance(subscript_info, Name):
                     #    num_subscripts = 1
@@ -4259,22 +4301,11 @@ class ACCDataDirective(ACCDirective):
                     #    print ("1: Unexpected node '{0}".
                     #           format(type(subscript_info)))
                     #    exit(1)
-                else:
+                #else:
                     #Array_Section?????
                     #Data_Ref prof%npind(ji) need COPYIN prof and prof%npind
-                    print ("2: Unexpected node '{0}".format(type(lhs)))
-                    exit(1)
-                equals = node.items[1]
-                rhs = node.items[2]
-                for node in walk_ast([node.items[2]]):
-                    if isinstance(node, Name):
-                        name = node.string
-                        if name.upper() not in fortran_intrinsics and \
-                           name.upper() not in loop_vars:
-                            if name not in writers:
-                                # It is read first so needs to be
-                                # copied in
-                                readers.add(node.string)
+                    #print ("2: Unexpected node '{0}".format(type(lhs)))
+                    #exit(1)
 
         # In the fparser2 AST, a directive is just a comment and does not
         # have children. This means we can end up inserting the 'end data'

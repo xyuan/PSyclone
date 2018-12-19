@@ -66,13 +66,13 @@ def test_explicit():
     schedule, _ = acc_trans.apply(schedule.children)
     gen_code = str(psy.gen)
 
-    assert ("  REAL, DIMENSION(jpi, jpj, jpk) :: umask\n"
-            "  !$ACC DATA COPYIN(r) COPYOUT(umask)\n"
+    assert ("  ! Test code with explicit NEMO-style do loop\n"
+            "  !$ACC DATA COPYOUT(umask)\n"
             "  DO jk = 1, jpk") in gen_code
 
     assert ("  END DO\n"
             "  !$ACC END DATA\n"
-            "END PROGRAM explicit_do") in gen_code
+            "") in gen_code
 
 
 def test_explicit_directive():
@@ -90,15 +90,15 @@ def test_explicit_directive():
     schedule, _ = acc_trans.apply(schedule.children)
     gen_code = str(psy.gen)
 
-    assert ("  REAL, DIMENSION(jpi, jpj, jpk) :: umask\n"
-            "  !$ACC DATA COPYIN(r) COPYOUT(umask)\n"
+    assert ("  ! Test code with explicit NEMO-style do loop\n"
+            "  !$ACC DATA COPYOUT(umask)\n"
             "  !$ACC KERNELS DEFAULT(PRESENT)\n"
             "  DO jk = 1, jpk") in gen_code
 
     assert ("  END DO\n"
             "  !$ACC END KERNELS\n"
             "  !$ACC END DATA\n"
-            "END PROGRAM explicit_do") in gen_code
+            "") in gen_code
 
 
 def test_code_block():
@@ -111,13 +111,13 @@ def test_code_block():
     schedule, _ = acc_trans.apply(schedule.children)
     gen_code = str(psy.gen)
 
-    assert ("  INTEGER :: psy_jk\n"
-            "  !$ACC DATA COPYIN(r) COPYOUT(umask)\n"
+    assert ("\n"
+            "  !$ACC DATA COPYOUT(umask)\n"
             "  WRITE(*, FMT = *) \"Hello world\"") in gen_code
 
     assert ("  DEALLOCATE(umask)\n"
             "  !$ACC END DATA\n"
-            "END PROGRAM code_block") in gen_code
+            "") in gen_code
 
 def test_code_block_noalloc():
     '''Check code generation for a mixture of loops and code blocks,
@@ -133,12 +133,12 @@ def test_code_block_noalloc():
     gen_code = str(psy.gen)
 
     assert ("  ALLOCATE(umask(jpi, jpj, jpk))\n"
-            "  !$ACC DATA COPYIN(r) COPYOUT(umask)\n"
-            "  DO psy_jk = 1, jpk, 1") in gen_code
+            "  !$ACC DATA COPYOUT(umask)\n"
+            "  DO jk = 1, jpk") in gen_code
 
     assert ("  END DO\n"
             "  !$ACC END DATA\n"
-            "  WRITE(*, FMT = *) \"Goodbye world\"") in gen_code
+            "") in gen_code
 
 
 def test_code_block_noalloc_kernels():
@@ -153,20 +153,19 @@ def test_code_block_noalloc_kernels():
     schedule = psy.invokes.get('code_block').schedule
     acc_trans = TransInfo().get_trans_name('ACCDataTrans')
     schedule, _ = acc_trans.apply(schedule.children[1:4])
-    #schedule.view()
     acc_trans = TransInfo().get_trans_name('ACCKernelsTrans')
     schedule, _ = acc_trans.apply(schedule.children[1].children[0:3], default_present=True)
     gen_code = str(psy.gen)
-    
+
     assert ("  ALLOCATE(umask(jpi, jpj, jpk))\n"
-            "  !$ACC DATA COPYIN(r) COPYOUT(umask)\n"
+            "  !$ACC DATA COPYOUT(umask)\n"
             "  !$ACC KERNELS DEFAULT(PRESENT)\n"
-            "  DO psy_jk = 1, jpk, 1") in gen_code
+            "  DO jk = 1, jpk") in gen_code
 
     assert ("  END DO\n"
             "  !$ACC END KERNELS\n"
             "  !$ACC END DATA\n"
-            "  DO iloop = 1, jpi") in gen_code
+            "") in gen_code
 
 
 def test_single_code_block():
@@ -180,7 +179,7 @@ def test_single_code_block():
     gen_code = str(psy.gen)
 
     assert ("  INTEGER :: num\n"
-            "  !$ACC DATA COPYIN(iarg) COPYOUT(num)\n"
+            "  !$ACC DATA\n"
             "  IF (iarg > 0) THEN") in gen_code
 
     assert ("  END IF\n"
@@ -198,11 +197,12 @@ def test_array_syntax():
     schedule, _ = acc_trans.apply(schedule.children)
     gen_code = str(psy.gen)
 
-    assert ("  INTEGER :: psy_ji\n"
-            "  !$ACC DATA COPYOUT(zftu,zftv)\n"
-            "  DO psy_jk = 1, jpk, 1") in gen_code
+    assert ("  REAL(KIND = wp), DIMENSION(jpi, jpj, jpk) :: zdit, zdjt, "
+            "zftu, zftv, ztfw\n"
+            "  !$ACC DATA COPYOUT(zftv,zftu)\n"
+            "  zftv(:, :, :) = 0.0D0") in gen_code
 
-    assert ("  END DO\n"
+    assert ("  zftu(:, :, 1) = 1.0D0\n"
             "  !$ACC END DATA\n"
             "END SUBROUTINE tra_ldf_iso") in gen_code
 
@@ -219,15 +219,15 @@ def test_multi_data():
     gen_code = str(psy.gen)
 
     assert ("  DO jk = 1, jpkm1\n"
-            "    !$ACC DATA COPYIN(jn,ptb,wmask,jk) "
+            "    !$ACC DATA COPYIN(ptb,wmask) "
             "COPYOUT(zdk1t,zdkt)\n"
             "    DO jj = 1, jpj, 1") in gen_code
 
     assert ("    END IF\n"
             "    !$ACC END DATA\n"
-            "    !$ACC DATA COPYIN(pahu,e2_e1u,e3t_n,wmask,e2u,umask,"
-            "r1_e1e2t,uslp,zdkt,jn,zdit,zftv,jk,zdk1t,zsign,e3u_n) "
-            "COPYOUT(pta,zabe1,zftu,zcof1,zmsku)\n"
+            "    !$ACC DATA COPYIN(pahu,e2_e1u,e3u_n,wmask,e2u,uslp,zdit,"
+            "zdkt,zdk1t,umask,pta,zftv,r1_e1e2t,e3t_n) "
+            "COPYOUT(zftu,pta)\n"
             "    DO jj = 1, jpjm1") in gen_code
 
     assert ("    END DO\n"
@@ -250,18 +250,10 @@ def test_replicated_loop():
     gen_code = str(psy.gen)
 
     assert ("  !$ACC DATA COPYOUT(zwx)\n"
-            "  DO psy_jj = 1, jpj, 1\n"
-            "    DO psy_ji = 1, jpi, 1\n"
-            "      zwx(psy_ji, psy_jj) = 0.E0\n"
-            "    END DO\n"
-            "  END DO\n"
+            "  zwx(:, :) = 0.E0\n"
             "  !$ACC END DATA\n"
             "  !$ACC DATA COPYOUT(zwx)\n"
-            "  DO psy_jj = 1, jpj, 1\n"
-            "    DO psy_ji = 1, jpi, 1\n"
-            "      zwx(psy_ji, psy_jj) = 0.E0\n"
-            "    END DO\n"
-            "  END DO\n"
+            "  zwx(:, :) = 0.E0\n"
             "  !$ACC END DATA") in gen_code
 
 
@@ -276,9 +268,23 @@ def test_data_ref():
     acc_trans = TransInfo().get_trans_name('ACCDataTrans')
     schedule, _ = acc_trans.apply(schedule.children)
     gen_code = str(psy.gen)
-    print (gen_code)
 
     assert ("!$ACC DATA COPYIN(a) COPYOUT(prof,prof%npind)") in gen_code
+
+
+def test_array_section():
+    '''Check code generation with a arrays accessed via an array section.
+
+    '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "array_section.f90"),
+                           api=API, line_length=False)
+    psy = PSyFactory(API, distributed_memory=False).create(invoke_info)
+    schedule = psy.invokes.get('array_section').schedule
+    acc_trans = TransInfo().get_trans_name('ACCDataTrans')
+    schedule, _ = acc_trans.apply(schedule.children)
+    gen_code = str(psy.gen)
+
+    assert ("!$ACC DATA COPYIN(b,c) COPYOUT(a)") in gen_code
 
 
 def test_kind_parameter():
@@ -296,8 +302,8 @@ def test_kind_parameter():
     schedule = psy.invokes.invoke_list[0].schedule
     acc_trans = TransInfo().get_trans_name('ACCDataTrans')
     schedule, _ = acc_trans.apply(schedule.children[0:1])
-    schedule.view()
     gen_code = str(psy.gen)
+
     assert "copyin(wp)" not in gen_code.lower()
 
 
@@ -316,7 +322,6 @@ def test_fn_call():
     schedule = psy.invokes.invoke_list[0].schedule
     acc_trans = TransInfo().get_trans_name('ACCDataTrans')
     schedule, _ = acc_trans.apply(schedule.children[0:1])
-    schedule.view()
     gen_code = str(psy.gen)
     assert "copyin(my_func)" not in gen_code.lower()
 
