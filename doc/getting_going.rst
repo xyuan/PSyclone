@@ -6,8 +6,13 @@ Getting Going
 Download
 --------
 
+The following instructions are intended for a PSyclone user who wants
+to work with a released version of the code. If you are a developer or
+wish to test a specific branch of PSyclone from the GitHub repository
+please see :ref:`dev-installation` in the :ref:`developers-guide`.
+
 PSyclone is available on the Python Package Index (pypi.org) and is
-hosted on github:
+hosted on GitHub:
 
 ``https://github.com/stfc/PSyclone``
 
@@ -30,19 +35,8 @@ PSyclone directly, e.g.
    > ls
    PSyclone-\ |release|\ 
    
-
-Alternatively the PSyclone repository can be cloned:
-
-``> git clone https://github.com/stfc/PSyclone.git``
-
-By default you will have access to the master branch if you clone. To
-change to the latest release then subsequently do the following
-
-.. parsed-literal::
-    > git checkout tags/\ |release|\ 
-
 Hereon the location where you download or clone PSyclone (including the
-PSyclone directory itself) will be referred to as <PSYCLONEHOME>
+PSyclone directory itself) will be referred to as ``<PSYCLONEHOME>``.
 
 Dependencies
 ------------
@@ -50,7 +44,16 @@ Dependencies
 PSyclone is written in Python so needs Python to be installed on the
 target machine. PSyclone has been tested under Python 2.6.5, 2.7.3 and 3.6.
 
-.. warning:: As of version 1.6, PSyclone requires version 0.0.7 or greater of fparser.
+.. warning:: Release 1.6.0 of PSyclone requires version 0.0.7 of
+             fparser and will fail on more recent versions. However
+             simply installing this version using pip will install a
+             later version of fparser. The suggested solution is to
+             use release 1.6.1 which fixes this problem and is otherwise
+	     identical to 1.6.0. However, if you want to use release
+	     1.6.0 you need to ensure that you have fparser 0.0.7. This
+	     can be acheived by downgrading an existing fparser
+	     installation or by installing version 0.0.7 of fparser
+	     *before* installing PSyclone.
 
 PSyclone immediately relies on four external Python packages; ``six``,
 ``configparser``, ``fparser`` and ``pyparsing``. In order to run the
@@ -356,8 +359,9 @@ on your PATH:
 ::
 
    > psyclone
-   usage: psyclone [-h] [-oalg OALG] [-opsy OPSY] [-api API] [-s SCRIPT]
-                   [-d DIRECTORY] [-l] [-dm] [-nodm]
+   usage: psyclone [-h] [-oalg OALG] [-opsy OPSY] [-okern OKERN] [-api API]
+                   [-s SCRIPT] [-d DIRECTORY] [-I INCLUDE] [-l] [-dm] [-nodm]
+                   [--kernel-renaming {multiple,single}]
 		   [--profile {invokes,kernels}]
                    [--force-profile {invokes,kernels}] [-v]
                    filename
@@ -371,13 +375,13 @@ PSy, middle layer and the second a re-write of the algorithm code to
 use that layer. These files are named according to the user-supplied
 arguments (options -oalg and -opsy). If those arguments are not
 supplied then the script writes the generated/re-written Fortran to
-the terminal.
+the terminal. For details of the other command-line arguments please
+see the :ref:`psyclone_script` Section.
 
 Examples are provided in the examples directory. There are 3
 subdirectories (dynamo, gocean and gunghoproto) corresponding to different
 API's that are supported by PSyclone. In this case we are going to use
-one of the dynamo examples
-::
+one of the dynamo examples::
 
    > cd <PSYCLONEHOME>/examples/dynamo/eg1
    > psyclone -api dynamo0.1 \
@@ -390,45 +394,42 @@ Fortran source code has dependencies on the dynamo system and
 therefore cannot be compiled stand-alone.
 
 You can also use the runme.py example to see the interactive
-API in action. This script contains:
-::
+API in action. This script contains::
 
    from psyclone.parse import parse
    from psyclone.psyGen import PSyFactory
    
    # This example uses version 0.1 of the Dynamo API
-   api="dynamo0.1"
+   api = "dynamo0.1"
    
    # Parse the file containing the algorithm specification and
    # return the Abstract Syntax Tree and invokeInfo objects
-   ast,invokeInfo=parse("dynamo.F90",api=api)
+   ast, invokeInfo = parse("dynamo.F90", api=api)
    
    # Create the PSy-layer object using the invokeInfo
-   psy=PSyFactory(api).create(invokeInfo)
+   psy = PSyFactory(api).create(invokeInfo)
    # Generate the Fortran code for the PSy layer
-   print psy.gen
+   print(psy.gen)
    
    # List the invokes that the PSy layer has
-   print psy.invokes.names
+   print(psy.invokes.names)
    
    # Examine the 'schedule' (e.g. loop structure) that each
    # invoke has
-   schedule=psy.invokes.get('invoke_0_v3_kernel_type').schedule
+   schedule = psy.invokes.get('invoke_0_v3_kernel_type').schedule
    schedule.view()
     
-   schedule=psy.invokes.get('invoke_1_v3_solver_kernel_type').schedule
+   schedule = psy.invokes.get('invoke_1_v3_solver_kernel_type').schedule
    schedule.view()
 
-It can be run non-interactively as follows:
-::
+It can be run non-interactively as follows::
 
    > cd <PSYCLONEHOME>/example/dynamo/eg1
    > python runme.py
 
 However, to understand this example in more depth it is instructive to
 cut-and-paste from the runme.py file into your own, interactive python
-session:
-::
+session::
 
    > cd <PSYCLONEHOME>/example/dynamo/eg1
    > python
@@ -436,8 +437,7 @@ session:
 In addition to the runme.py script, there is also runme_openmp.py which
 illustrates how one applies an OpenMP transform to a loop schedule
 within the PSy layer. The initial part of this script is the same as that 
-of runme.py (above) and is therefore omitted here:
-::
+of runme.py (above) and is therefore omitted here::
 
    # List the various invokes that the PSy layer contains
    print(psy.invokes.names)

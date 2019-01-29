@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # BSD 3-Clause License
 #
-# Copyright (c) 2017, Science and Technology Facilities Council
+# Copyright (c) 2017-18, Science and Technology Facilities Council.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -45,27 +45,30 @@ from fparser import api as fpapi
 from psyclone.parse import parse, ParseError
 from psyclone.psyGen import PSyFactory, GenerationError
 from psyclone.dynamo0p3 import DynKernMetadata, DynKern
-import utils
+from psyclone_test_utils import code_compiles, print_diffs, TEST_COMPILE
 
 # constants
 BASE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          "test_files", "dynamo0p3")
 
+API = "dynamo0.3"
+
 CODE = '''
 module testkern_eval
   type, extends(kernel_type) :: testkern_eval_type
-    type(arg_type) :: meta_args(2) = (/                                  &
-         arg_type(GH_FIELD,   GH_INC,  W0),                              &
-         arg_type(GH_FIELD,   GH_READ, W1)                               &
+    type(arg_type) :: meta_args(2) = (/       &
+         arg_type(GH_FIELD,   GH_INC,  W0),   &
+         arg_type(GH_FIELD,   GH_READ, W1)    &
          /)
-    type(func_type) :: meta_funcs(2) = (/                                &
-         func_type(W0, GH_BASIS),                                        &
-         func_type(W1, GH_DIFF_BASIS)                                    &
+    type(func_type) :: meta_funcs(2) = (/     &
+         func_type(W0, GH_BASIS),             &
+         func_type(W1, GH_DIFF_BASIS)         &
          /)
-    integer, parameter :: gh_shape = gh_evaluator
-    integer, parameter :: iterates_over = cells
+    integer :: gh_shape = gh_evaluator
+    integer :: gh_evaluator_targets(2) = [W0, W1]
+    integer :: iterates_over = cells
   contains
-    procedure() :: code => testkern_eval_code
+    procedure, nopass :: code => testkern_eval_code
   end type testkern_eval_type
 contains
   subroutine testkern_eval_code()
@@ -82,22 +85,86 @@ def test_eval_mdata():
     assert dkm.get_integer_variable('gh_shape') == 'gh_evaluator'
 
 
-def test_single_updated_arg():
-    ''' Check that we reject any kernel requiring an evaluator
-    if it writes to more than one argument '''
+def test_multi_updated_arg():
+    ''' Check that we handle any kernel requiring an evaluator
+    if it writes to more than one argument. (This used to be rejected.) '''
     fparser.logging.disable(fparser.logging.CRITICAL)
     # Change the access of the read-only argument
     code = CODE.replace("GH_READ", "GH_WRITE", 1)
     ast = fpapi.parse(code, ignore_comments=False)
-    with pytest.raises(ParseError) as excinfo:
-        _ = DynKernMetadata(ast, name="testkern_eval_type")
-    assert ("kernel testkern_eval_type requires gh_evaluator and updates "
-            "2 arguments") in str(excinfo)
+    dkm = DynKernMetadata(ast, name="testkern_eval_type")
+    # Evaluator targets list remains unchanged
+    assert dkm._eval_targets == ['w0', 'w1']
     # Change the gh_shape element to specify quadrature and then test again
     qr_code = code.replace("gh_evaluator", "gh_quadrature_xyoz")
     ast = fpapi.parse(qr_code, ignore_comments=False)
     dkm = DynKernMetadata(ast, name="testkern_eval_type")
     assert dkm.get_integer_variable('gh_shape') == "gh_quadrature_xyoz"
+
+
+def test_eval_targets():
+    ''' Check that we can specify multiple evaluator targets using
+    the gh_evaluator_targets meta-data entry. '''
+    ast = fpapi.parse(CODE, ignore_comments=False)
+    dkm = DynKernMetadata(ast, name="testkern_eval_type")
+    assert dkm._eval_targets == ["w0", "w1"]
+
+
+def test_eval_targets_err():
+    ''' Check that needlessly specifying gh_evaluator_targets raises the
+    expected errors. '''
+    # When the shape is gh_quadrature_* instead of gh_evaluator
+    code = CODE.replace("gh_evaluator\n", "gh_quadrature_xyoz\n")
+    ast = fpapi.parse(code, ignore_comments=False)
+    with pytest.raises(ParseError) as err:
+        _ = DynKernMetadata(ast, name="testkern_eval_type")
+    assert ("specifies gh_evaluator_targets (['w0', 'w1']) but does not need "
+            "an evaluator because gh_shape=gh_quadrature_xyoz" in str(err))
+    # When there are no basis/diff-basis functions required
+    code = CODE.replace(
+        "    type(func_type) :: meta_funcs(2) = (/     &\n"
+        "         func_type(W0, GH_BASIS),             &\n"
+        "         func_type(W1, GH_DIFF_BASIS)         &\n"
+        "         /)\n", "")
+    code = code.replace("    integer :: gh_shape = gh_evaluator\n",
+                        "")
+    ast = fpapi.parse(code, ignore_comments=False)
+    with pytest.raises(ParseError) as err:
+        _ = DynKernMetadata(ast, name="testkern_eval_type")
+    assert ("specifies gh_evaluator_targets (['w0', 'w1']) but does not need "
+            "an evaluator because no basis or differential basis functions "
+            "are required" in str(err))
+
+
+def test_eval_targets_wrong_space():
+    ''' Check that we reject meta-data where there is no argument for one of
+    the function spaces listed in gh_evaluator_targets. '''
+    code = CODE.replace("[W0, W1]", "[W0, W3]")
+    ast = fpapi.parse(code, ignore_comments=False)
+    with pytest.raises(ParseError) as err:
+        _ = DynKernMetadata(ast, name="testkern_eval_type")
+    assert ("specifies that an evaluator is required on w3 but does not have "
+            "an argument on this space" in str(err))
+
+
+def test_eval_targets_op_space():
+    ''' Check that listing a space associated with an operator in
+    gh_evaluator_targets works OK. '''
+    code = CODE.replace("arg_type(GH_FIELD,   GH_INC,  W0),   &",
+                        "arg_type(GH_FIELD,   GH_INC,  W0),   &\n"
+                        "    arg_type(GH_OPERATOR, GH_READ, W2, W1), &")
+    code = code.replace("meta_args(2)", "meta_args(3)")
+    code = code.replace("[W0, W1]", "[W0, W3]")
+    ast = fpapi.parse(code, ignore_comments=False)
+    with pytest.raises(ParseError) as err:
+        _ = DynKernMetadata(ast, name="testkern_eval_type")
+    assert ("specifies that an evaluator is required on w3 but does not have "
+            "an argument on this space" in str(err))
+    # Change to a space that is referenced by an operator
+    code = code.replace("[W0, W3]", "[W0, W2]")
+    ast = fpapi.parse(code, ignore_comments=False)
+    dkm = DynKernMetadata(ast, name="testkern_eval_type")
+    assert isinstance(dkm, DynKernMetadata)
 
 
 def test_single_kern_eval(tmpdir, f90, f90flags):
@@ -110,9 +177,9 @@ def test_single_kern_eval(tmpdir, f90, f90flags):
     gen_code = str(psy.gen)
     print(gen_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
+        assert code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
 
     # First, check the declarations
     expected_decl = (
@@ -125,7 +192,7 @@ def test_single_kern_eval(tmpdir, f90, f90flags):
         "      INTEGER df_nodal, df_w0, df_w1\n"
         "      REAL(KIND=r_def), allocatable :: basis_w0_on_w0(:,:,:), "
         "diff_basis_w1_on_w0(:,:,:)\n"
-        "      INTEGER ndf_nodal_w0, dim_w0, diff_dim_w1\n"
+        "      INTEGER dim_w0, diff_dim_w1\n"
         "      REAL(KIND=r_def), pointer :: nodes_w0(:,:) => null()\n"
         "      INTEGER ndf_w0, undf_w0, ndf_w1, undf_w1\n"
         "      INTEGER nlayers\n"
@@ -160,35 +227,27 @@ def test_single_kern_eval(tmpdir, f90, f90flags):
         "      ndf_w1 = f1_proxy%vspace%get_ndf()\n"
         "      undf_w1 = f1_proxy%vspace%get_undf()\n"
         "      !\n"
-        "      ! Initialise evaluator-related quantities using the field(s) "
-        "that are written to\n"
+        "      ! Initialise evaluator-related quantities for the target "
+        "function spaces\n"
         "      !\n"
-        "      ndf_nodal_w0 = f0_proxy%vspace%get_ndf()\n"
         "      nodes_w0 => f0_proxy%vspace%get_nodes()\n"
         "      !\n"
-        "      ! Allocate basis arrays\n"
+        "      ! Allocate basis/diff-basis arrays\n"
         "      !\n"
         "      dim_w0 = f0_proxy%vspace%get_dim_space()\n"
-        "      ALLOCATE (basis_w0_on_w0(dim_w0, ndf_w0, ndf_nodal_w0))\n"
-        "      !\n"
-        "      ! Allocate differential basis arrays\n"
-        "      !\n"
+        "      ALLOCATE (basis_w0_on_w0(dim_w0, ndf_w0, ndf_w0))\n"
         "      diff_dim_w1 = f1_proxy%vspace%get_dim_space_diff()\n"
-        "      ALLOCATE (diff_basis_w1_on_w0(diff_dim_w1, ndf_w1, "
-        "ndf_nodal_w0))\n"
+        "      ALLOCATE (diff_basis_w1_on_w0(diff_dim_w1, ndf_w1, ndf_w0))\n"
         "      !\n"
-        "      ! Compute basis arrays\n"
+        "      ! Compute basis/diff-basis arrays\n"
         "      !\n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w0=1,ndf_w0\n"
         "          basis_w0_on_w0(:,df_w0,df_nodal) = "
         "f0_proxy%vspace%call_function(BASIS,df_w0,nodes_w0(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      !\n"
-        "      ! Compute differential basis arrays\n"
-        "      !\n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w1=1,ndf_w1\n"
         "          diff_basis_w1_on_w0(:,df_w1,df_nodal) = f1_proxy%vspace%"
         "call_function(DIFF_BASIS,df_w1,nodes_w0(:,df_nodal))\n"
@@ -224,9 +283,9 @@ def test_single_kern_eval_op(tmpdir, f90, f90flags):
     gen_code = str(psy.gen)
     print(gen_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
+        assert code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
 
     # Kernel writes to an operator, the 'to' space of which is W0. Kernel
     # requires basis on W2 ('from'-space of operator) and diff-basis on
@@ -239,38 +298,30 @@ def test_single_kern_eval_op(tmpdir, f90, f90flags):
         "      INTEGER df_nodal, df_w2, df_w3\n"
         "      REAL(KIND=r_def), allocatable :: basis_w2_on_w0(:,:,:), "
         "diff_basis_w3_on_w0(:,:,:)\n"
-        "      INTEGER ndf_nodal_w0, dim_w2, diff_dim_w3\n"
+        "      INTEGER dim_w2, diff_dim_w3\n"
         "      REAL(KIND=r_def), pointer :: nodes_w0(:,:) => null()\n"
         "      INTEGER ndf_w0, ndf_w2, ndf_w3, undf_w3\n"
         )
     assert decln_output in gen_code
     init_output = (
-        "      ndf_nodal_w0 = op1_proxy%fs_to%get_ndf()\n"
         "      nodes_w0 => op1_proxy%fs_to%get_nodes()\n"
         "      !\n"
-        "      ! Allocate basis arrays\n"
+        "      ! Allocate basis/diff-basis arrays\n"
         "      !\n"
         "      dim_w2 = op1_proxy%fs_from%get_dim_space()\n"
-        "      ALLOCATE (basis_w2_on_w0(dim_w2, ndf_w2, ndf_nodal_w0))\n"
-        "      !\n"
-        "      ! Allocate differential basis arrays\n"
-        "      !\n"
+        "      ALLOCATE (basis_w2_on_w0(dim_w2, ndf_w2, ndf_w0))\n"
         "      diff_dim_w3 = f1_proxy%vspace%get_dim_space_diff()\n"
-        "      ALLOCATE (diff_basis_w3_on_w0(diff_dim_w3, ndf_w3, "
-        "ndf_nodal_w0))\n"
+        "      ALLOCATE (diff_basis_w3_on_w0(diff_dim_w3, ndf_w3, ndf_w0))\n"
         "      !\n"
-        "      ! Compute basis arrays\n"
+        "      ! Compute basis/diff-basis arrays\n"
         "      !\n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w2=1,ndf_w2\n"
         "          basis_w2_on_w0(:,df_w2,df_nodal) = op1_proxy%fs_from%"
         "call_function(BASIS,df_w2,nodes_w0(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      !\n"
-        "      ! Compute differential basis arrays\n"
-        "      !\n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w3=1,ndf_w3\n"
         "          diff_basis_w3_on_w0(:,df_w3,df_nodal) = f1_proxy%vspace%"
         "call_function(DIFF_BASIS,df_w3,nodes_w0(:,df_nodal))\n"
@@ -301,9 +352,9 @@ def test_two_qr(tmpdir, f90, f90flags):
     gen_code = str(psy.gen)
     print(gen_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
+        assert code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
 
     expected_declns = (
         "    SUBROUTINE invoke_0(f1, f2, m1, a, m2, istp, g1, g2, n1, b, "
@@ -319,10 +370,11 @@ def test_two_qr(tmpdir, f90, f90flags):
         "      TYPE(quadrature_xyoz_type), intent(in) :: qr, qr2\n"
         "      INTEGER cell\n"
         "      REAL(KIND=r_def), allocatable :: basis_w1_qr(:,:,:,:), "
-        "basis_w3_qr(:,:,:,:), basis_w1_qr2(:,:,:,:), basis_w3_qr2(:,:,:,:), "
-        "diff_basis_w2_qr(:,:,:,:), diff_basis_w3_qr(:,:,:,:), "
-        "diff_basis_w2_qr2(:,:,:,:), diff_basis_w3_qr2(:,:,:,:)\n"
-        "      INTEGER dim_w1, dim_w3, diff_dim_w2, diff_dim_w3\n"
+        "diff_basis_w2_qr(:,:,:,:), basis_w3_qr(:,:,:,:), "
+        "diff_basis_w3_qr(:,:,:,:), basis_w1_qr2(:,:,:,:), "
+        "diff_basis_w2_qr2(:,:,:,:), basis_w3_qr2(:,:,:,:), "
+        "diff_basis_w3_qr2(:,:,:,:)\n"
+        "      INTEGER dim_w1, diff_dim_w2, dim_w3, diff_dim_w3\n"
         "      REAL(KIND=r_def), pointer :: weights_xy_qr2(:) => null(), "
         "weights_z_qr2(:) => null()\n"
         "      INTEGER np_xy_qr2, np_z_qr2\n"
@@ -353,52 +405,46 @@ def test_two_qr(tmpdir, f90, f90flags):
         "      weights_xy_qr2 => qr2_proxy%weights_xy\n"
         "      weights_z_qr2 => qr2_proxy%weights_z\n"
         "      !\n"
-        "      ! Allocate basis arrays\n"
+        "      ! Allocate basis/diff-basis arrays\n"
         "      !\n"
         "      dim_w1 = f1_proxy%vspace%get_dim_space()\n"
         "      ALLOCATE (basis_w1_qr(dim_w1, ndf_w1, np_xy_qr, np_z_qr))\n"
-        "      dim_w3 = m2_proxy%vspace%get_dim_space()\n"
-        "      ALLOCATE (basis_w3_qr(dim_w3, ndf_w3, np_xy_qr, np_z_qr))\n"
-        "      ALLOCATE (basis_w1_qr2(dim_w1, ndf_w1, np_xy_qr2, np_z_qr2))\n"
-        "      ALLOCATE (basis_w3_qr2(dim_w3, ndf_w3, np_xy_qr2, np_z_qr2))\n"
-        "      !\n"
-        "      ! Allocate differential basis arrays\n"
-        "      !\n"
         "      diff_dim_w2 = f2_proxy%vspace%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w2_qr(diff_dim_w2, ndf_w2, np_xy_qr, "
         "np_z_qr))\n"
+        "      dim_w3 = m2_proxy%vspace%get_dim_space()\n"
+        "      ALLOCATE (basis_w3_qr(dim_w3, ndf_w3, np_xy_qr, np_z_qr))\n"
         "      diff_dim_w3 = m2_proxy%vspace%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w3_qr(diff_dim_w3, ndf_w3, np_xy_qr, "
         "np_z_qr))\n"
+        "      ALLOCATE (basis_w1_qr2(dim_w1, ndf_w1, np_xy_qr2, np_z_qr2))\n"
         "      ALLOCATE (diff_basis_w2_qr2(diff_dim_w2, ndf_w2, np_xy_qr2, "
         "np_z_qr2))\n"
+        "      ALLOCATE (basis_w3_qr2(dim_w3, ndf_w3, np_xy_qr2, np_z_qr2))\n"
         "      ALLOCATE (diff_basis_w3_qr2(diff_dim_w3, ndf_w3, np_xy_qr2, "
         "np_z_qr2))\n"
         "      !\n"
-        "      ! Compute basis arrays\n"
+        "      ! Compute basis/diff-basis arrays\n"
         "      !\n"
         "      CALL qr%compute_function("
         "BASIS, f1_proxy%vspace, dim_w1, ndf_w1, basis_w1_qr)\n"
-        "      CALL qr%compute_function("
-        "BASIS, m2_proxy%vspace, dim_w3, ndf_w3, basis_w3_qr)\n"
-        "      CALL qr2%compute_function("
-        "BASIS, g1_proxy%vspace, dim_w1, ndf_w1, basis_w1_qr2)\n"
-        "      CALL qr2%compute_function("
-        "BASIS, n2_proxy%vspace, dim_w3, ndf_w3, basis_w3_qr2)\n"
-        "      !\n"
-        "      ! Compute differential basis arrays\n"
-        "      !\n"
         "      CALL qr%compute_function(DIFF_BASIS, "
         "f2_proxy%vspace, diff_dim_w2, ndf_w2, diff_basis_w2_qr)\n"
+        "      CALL qr%compute_function("
+        "BASIS, m2_proxy%vspace, dim_w3, ndf_w3, basis_w3_qr)\n"
         "      CALL qr%compute_function(DIFF_BASIS, "
         "m2_proxy%vspace, diff_dim_w3, ndf_w3, diff_basis_w3_qr)\n"
+        "      CALL qr2%compute_function("
+        "BASIS, g1_proxy%vspace, dim_w1, ndf_w1, basis_w1_qr2)\n"
         "      CALL qr2%compute_function(DIFF_BASIS, "
         "g2_proxy%vspace, diff_dim_w2, ndf_w2, diff_basis_w2_qr2)\n"
+        "      CALL qr2%compute_function("
+        "BASIS, n2_proxy%vspace, dim_w3, ndf_w3, basis_w3_qr2)\n"
         "      CALL qr2%compute_function(DIFF_BASIS, "
         "n2_proxy%vspace, diff_dim_w3, ndf_w3, diff_basis_w3_qr2)\n"
         "      !\n")
     if expected_code not in gen_code:
-        utils.print_diffs(expected_code, gen_code)
+        print_diffs(expected_code, gen_code)
         assert 0
     expected_kern_call = (
         "      ! Call our kernels\n"
@@ -429,7 +475,7 @@ def test_two_qr(tmpdir, f90, f90flags):
         "diff_basis_w3_qr2)\n"
     )
     if expected_kern_call not in gen_code:
-        utils.print_diffs(expected_kern_call, gen_code)
+        print_diffs(expected_kern_call, gen_code)
         assert 0
 
 
@@ -443,9 +489,9 @@ def test_two_identical_qr(tmpdir, f90, f90flags):
     gen_code = str(psy.gen)
     print(gen_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
+        assert code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
 
     expected_init = (
         "      ! Look-up quadrature variables\n"
@@ -461,31 +507,24 @@ def test_two_identical_qr(tmpdir, f90, f90flags):
         "      !\n"
         "      dim_w1 = f1_proxy%vspace%get_dim_space()\n"
         "      ALLOCATE (basis_w1_qr(dim_w1, ndf_w1, np_xy_qr, np_z_qr))\n"
-        "      dim_w3 = m2_proxy%vspace%get_dim_space()\n"
-        "      ALLOCATE (basis_w3_qr(dim_w3, ndf_w3, np_xy_qr, np_z_qr))\n"
-        "      !\n"
-        "      ! Allocate differential basis arrays\n"
-        "      !\n"
         "      diff_dim_w2 = f2_proxy%vspace%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w2_qr(diff_dim_w2, ndf_w2, np_xy_qr, "
         "np_z_qr))\n"
+        "      dim_w3 = m2_proxy%vspace%get_dim_space()\n"
+        "      ALLOCATE (basis_w3_qr(dim_w3, ndf_w3, np_xy_qr, np_z_qr))\n"
         "      diff_dim_w3 = m2_proxy%vspace%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w3_qr(diff_dim_w3, ndf_w3, np_xy_qr, "
         "np_z_qr))\n"
-        "      !\n"
-        )
+        "      !\n")
     assert expected_alloc in gen_code
     expected_basis_init = (
         "      !\n"
         "      CALL qr%compute_function(BASIS, f1_proxy%vspace, "
         "dim_w1, ndf_w1, basis_w1_qr)\n"
-        "      CALL qr%compute_function(BASIS, m2_proxy%vspace, "
-        "dim_w3, ndf_w3, basis_w3_qr)\n"
-        "      !\n"
-        "      ! Compute differential basis arrays\n"
-        "      !\n"
         "      CALL qr%compute_function(DIFF_BASIS, f2_proxy%vspace, "
         "diff_dim_w2, ndf_w2, diff_basis_w2_qr)\n"
+        "      CALL qr%compute_function(BASIS, m2_proxy%vspace, "
+        "dim_w3, ndf_w3, basis_w3_qr)\n"
         "      CALL qr%compute_function(DIFF_BASIS, m2_proxy%vspace, "
         "diff_dim_w3, ndf_w3, diff_basis_w3_qr)\n"
         "      !\n")
@@ -526,9 +565,9 @@ def test_anyw2(tmpdir, f90, f90flags):
         generated_code = str(psy.gen)
         print(generated_code)
 
-        if utils.TEST_COMPILE:
+        if TEST_COMPILE:
             # Test that generated code compiles
-            assert utils.code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
+            assert code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
 
         output = (
             "      ! Initialise number of DoFs for any_w2\n"
@@ -544,26 +583,20 @@ def test_anyw2(tmpdir, f90, f90flags):
             "      weights_xy_qr => qr_proxy%weights_xy\n"
             "      weights_z_qr => qr_proxy%weights_z\n"
             "      !\n"
-            "      ! Allocate basis arrays\n"
+            "      ! Allocate basis/diff-basis arrays\n"
             "      !\n"
             "      dim_any_w2 = f1_proxy%vspace%get_dim_space()\n"
             "      ALLOCATE (basis_any_w2_qr(dim_any_w2, ndf_any_w2, "
             "np_xy_qr, np_z_qr))\n"
-            "      !\n"
-            "      ! Allocate differential basis arrays\n"
-            "      !\n"
             "      diff_dim_any_w2 = f1_proxy%vspace%"
             "get_dim_space_diff()\n"
             "      ALLOCATE (diff_basis_any_w2_qr(diff_dim_any_w2, "
             "ndf_any_w2, np_xy_qr, np_z_qr))\n"
             "      !\n"
-            "      ! Compute basis arrays\n"
+            "      ! Compute basis/diff-basis arrays\n"
             "      !\n"
             "      CALL qr%compute_function(BASIS, f1_proxy%vspace, "
             "dim_any_w2, ndf_any_w2, basis_any_w2_qr)\n"
-            "      !\n"
-            "      ! Compute differential basis arrays\n"
-            "      !\n"
             "      CALL qr%compute_function(DIFF_BASIS, f1_proxy%vspace, "
             "diff_dim_any_w2, ndf_any_w2, diff_basis_any_w2_qr)")
         assert output in generated_code
@@ -578,9 +611,9 @@ def test_qr_plus_eval(tmpdir, f90, f90flags):
     gen_code = str(psy.gen)
     print(gen_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # Test that generated code compiles
-        assert utils.code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
+        assert code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
 
     output_decls = (
         "    SUBROUTINE invoke_0(f0, f1, f2, m1, a, m2, istp, qr)\n"
@@ -597,11 +630,11 @@ def test_qr_plus_eval(tmpdir, f90, f90flags):
         "      INTEGER cell\n"
         "      INTEGER df_nodal, df_w0, df_w1\n"
         "      REAL(KIND=r_def), allocatable :: basis_w0_on_w0(:,:,:), "
-        "basis_w1_qr(:,:,:,:), basis_w3_qr(:,:,:,:), "
-        "diff_basis_w1_on_w0(:,:,:), "
-        "diff_basis_w2_qr(:,:,:,:), diff_basis_w3_qr(:,:,:,:)\n"
-        "      INTEGER ndf_nodal_w0, dim_w0, dim_w1, dim_w3, diff_dim_w1, "
-        "diff_dim_w2, diff_dim_w3\n"
+        "diff_basis_w1_on_w0(:,:,:), basis_w1_qr(:,:,:,:), "
+        "diff_basis_w2_qr(:,:,:,:), basis_w3_qr(:,:,:,:), "
+        "diff_basis_w3_qr(:,:,:,:)\n"
+        "      INTEGER dim_w0, diff_dim_w1, dim_w1, diff_dim_w2, dim_w3, "
+        "diff_dim_w3\n"
         "      REAL(KIND=r_def), pointer :: nodes_w0(:,:) => null()\n"
         "      REAL(KIND=r_def), pointer :: weights_xy_qr(:) => null(), "
         "weights_z_qr(:) => null()\n"
@@ -628,56 +661,49 @@ def test_qr_plus_eval(tmpdir, f90, f90flags):
         "      weights_xy_qr => qr_proxy%weights_xy\n"
         "      weights_z_qr => qr_proxy%weights_z\n"
         "      !\n"
-        "      ! Initialise evaluator-related quantities using the "
-        "field(s) that are written to\n"
+        "      ! Initialise evaluator-related quantities for the target "
+        "function spaces\n"
         "      !\n"
-        "      ndf_nodal_w0 = f0_proxy%vspace%get_ndf()\n"
         "      nodes_w0 => f0_proxy%vspace%get_nodes()\n"
         "      !\n"
-        "      ! Allocate basis arrays\n"
+        "      ! Allocate basis/diff-basis arrays\n"
         "      !\n"
         "      dim_w0 = f0_proxy%vspace%get_dim_space()\n"
-        "      ALLOCATE (basis_w0_on_w0(dim_w0, ndf_w0, ndf_nodal_w0))\n"
-        "      dim_w1 = f1_proxy%vspace%get_dim_space()\n"
-        "      ALLOCATE (basis_w1_qr(dim_w1, ndf_w1, np_xy_qr, np_z_qr))\n"
-        "      dim_w3 = m2_proxy%vspace%get_dim_space()\n"
-        "      ALLOCATE (basis_w3_qr(dim_w3, ndf_w3, np_xy_qr, np_z_qr))\n"
-        "      !\n"
-        "      ! Allocate differential basis arrays\n"
-        "      !\n"
+        "      ALLOCATE (basis_w0_on_w0(dim_w0, ndf_w0, ndf_w0))\n"
         "      diff_dim_w1 = f1_proxy%vspace%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w1_on_w0(diff_dim_w1, ndf_w1, "
-        "ndf_nodal_w0))\n"
+        "ndf_w0))\n"
+        "      dim_w1 = f1_proxy%vspace%get_dim_space()\n"
+        "      ALLOCATE (basis_w1_qr(dim_w1, ndf_w1, np_xy_qr, np_z_qr))\n"
         "      diff_dim_w2 = f2_proxy%vspace%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w2_qr(diff_dim_w2, ndf_w2, np_xy_qr, "
         "np_z_qr))\n"
+        "      dim_w3 = m2_proxy%vspace%get_dim_space()\n"
+        "      ALLOCATE (basis_w3_qr(dim_w3, ndf_w3, np_xy_qr, np_z_qr))\n"
         "      diff_dim_w3 = m2_proxy%vspace%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w3_qr(diff_dim_w3, ndf_w3, np_xy_qr, "
         "np_z_qr))\n"
         "      !\n"
-        "      ! Compute basis arrays\n"
+        "      ! Compute basis/diff-basis arrays\n"
         "      !\n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w0=1,ndf_w0\n"
         "          basis_w0_on_w0(:,df_w0,df_nodal) = f0_proxy%vspace%"
         "call_function(BASIS,df_w0,nodes_w0(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      CALL qr%compute_function(BASIS, f1_proxy%vspace, "
-        "dim_w1, ndf_w1, basis_w1_qr)\n"
-        "      CALL qr%compute_function(BASIS, m2_proxy%vspace, "
-        "dim_w3, ndf_w3, basis_w3_qr)\n"
-        "      !\n"
-        "      ! Compute differential basis arrays\n"
-        "      !\n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w1=1,ndf_w1\n"
         "          diff_basis_w1_on_w0(:,df_w1,df_nodal) = f1_proxy%vspace%"
         "call_function(DIFF_BASIS,df_w1,nodes_w0(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
+        "      CALL qr%compute_function(BASIS, f1_proxy%vspace, "
+        "dim_w1, ndf_w1, basis_w1_qr)\n"
         "      CALL qr%compute_function(DIFF_BASIS, f2_proxy%vspace, "
         "diff_dim_w2, ndf_w2, diff_basis_w2_qr)\n"
+        "      CALL qr%compute_function(BASIS, m2_proxy%vspace, "
+        "dim_w3, ndf_w3, basis_w3_qr)\n"
         "      CALL qr%compute_function(DIFF_BASIS, m2_proxy%vspace, "
         "diff_dim_w3, ndf_w3, diff_basis_w3_qr)\n")
     assert output_setup in gen_code
@@ -713,43 +739,35 @@ def test_two_eval_same_space(tmpdir, f90, f90flags):
     gen_code = str(psy.gen)
     print(gen_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # Test that generated code compiles
-        assert utils.code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
+        assert code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
 
     output_init = (
         "      !\n"
-        "      ! Initialise evaluator-related quantities using the field(s) "
-        "that are written to\n"
+        "      ! Initialise evaluator-related quantities for the target "
+        "function spaces\n"
         "      !\n"
-        "      ndf_nodal_w0 = f0_proxy%vspace%get_ndf()\n"
         "      nodes_w0 => f0_proxy%vspace%get_nodes()\n"
         "      !\n"
-        "      ! Allocate basis arrays\n"
+        "      ! Allocate basis/diff-basis arrays\n"
         "      !\n"
         "      dim_w0 = f0_proxy%vspace%get_dim_space()\n"
-        "      ALLOCATE (basis_w0_on_w0(dim_w0, ndf_w0, ndf_nodal_w0))\n"
-        "      !\n"
-        "      ! Allocate differential basis arrays\n"
-        "      !\n"
+        "      ALLOCATE (basis_w0_on_w0(dim_w0, ndf_w0, ndf_w0))\n"
         "      diff_dim_w1 = f1_proxy%vspace%get_dim_space_diff()\n"
-        "      ALLOCATE (diff_basis_w1_on_w0(diff_dim_w1, ndf_w1, "
-        "ndf_nodal_w0))\n")
+        "      ALLOCATE (diff_basis_w1_on_w0(diff_dim_w1, ndf_w1, ndf_w0))\n")
     assert output_init in gen_code
     output_code = (
         "      !\n"
-        "      ! Compute basis arrays\n"
+        "      ! Compute basis/diff-basis arrays\n"
         "      !\n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w0=1,ndf_w0\n"
         "          basis_w0_on_w0(:,df_w0,df_nodal) = f0_proxy%vspace%"
         "call_function(BASIS,df_w0,nodes_w0(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      !\n"
-        "      ! Compute differential basis arrays\n"
-        "      !\n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w1=1,ndf_w1\n"
         "          diff_basis_w1_on_w0(:,df_w1,df_nodal) = f1_proxy%vspace%"
         "call_function(DIFF_BASIS,df_w1,nodes_w0(:,df_nodal))\n"
@@ -784,9 +802,9 @@ def test_two_eval_diff_space(tmpdir, f90, f90flags):
     gen_code = str(psy.gen)
     print(gen_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
+        assert code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
 
     # The first kernel in the invoke (testkern_eval_type) requires basis and
     # diff basis functions for the spaces of the first and second field
@@ -798,53 +816,44 @@ def test_two_eval_diff_space(tmpdir, f90, f90flags):
     # arg we require basis functions on the nodal points of the 'to' space
     # of that operator (W0 in this case).
     expected_init = (
-        "      ! Initialise evaluator-related quantities using the field(s) "
-        "that are written to\n"
+        "      ! Initialise evaluator-related quantities for the target "
+        "function spaces\n"
         "      !\n"
-        "      ndf_nodal_w0 = f0_proxy%vspace%get_ndf()\n"
         "      nodes_w0 => f0_proxy%vspace%get_nodes()\n"
         "      !\n"
-        "      ! Allocate basis arrays\n"
+        "      ! Allocate basis/diff-basis arrays\n"
         "      !\n"
         "      dim_w0 = f0_proxy%vspace%get_dim_space()\n"
-        "      ALLOCATE (basis_w0_on_w0(dim_w0, ndf_w0, ndf_nodal_w0))\n"
-        "      dim_w2 = op1_proxy%fs_from%get_dim_space()\n"
-        "      ALLOCATE (basis_w2_on_w0(dim_w2, ndf_w2, ndf_nodal_w0))\n"
-        "      !\n"
-        "      ! Allocate differential basis arrays\n"
-        "      !\n"
+        "      ALLOCATE (basis_w0_on_w0(dim_w0, ndf_w0, ndf_w0))\n"
         "      diff_dim_w1 = f1_proxy%vspace%get_dim_space_diff()\n"
-        "      ALLOCATE (diff_basis_w1_on_w0(diff_dim_w1, ndf_w1, "
-        "ndf_nodal_w0))\n"
+        "      ALLOCATE (diff_basis_w1_on_w0(diff_dim_w1, ndf_w1, ndf_w0))\n"
+        "      dim_w2 = op1_proxy%fs_from%get_dim_space()\n"
+        "      ALLOCATE (basis_w2_on_w0(dim_w2, ndf_w2, ndf_w0))\n"
         "      diff_dim_w3 = f2_proxy%vspace%get_dim_space_diff()\n"
-        "      ALLOCATE (diff_basis_w3_on_w0(diff_dim_w3, ndf_w3, "
-        "ndf_nodal_w0))\n")
+        "      ALLOCATE (diff_basis_w3_on_w0(diff_dim_w3, ndf_w3, ndf_w0))\n")
     assert expected_init in gen_code
     expected_code = (
-        "      ! Compute basis arrays\n"
+        "      ! Compute basis/diff-basis arrays\n"
         "      !\n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w0=1,ndf_w0\n"
         "          basis_w0_on_w0(:,df_w0,df_nodal) = f0_proxy%vspace%"
         "call_function(BASIS,df_w0,nodes_w0(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
-        "        DO df_w2=1,ndf_w2\n"
-        "          basis_w2_on_w0(:,df_w2,df_nodal) = op1_proxy%fs_from%"
-        "call_function(BASIS,df_w2,nodes_w0(:,df_nodal))\n"
-        "        END DO \n"
-        "      END DO \n"
-        "      !\n"
-        "      ! Compute differential basis arrays\n"
-        "      !\n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w1=1,ndf_w1\n"
         "          diff_basis_w1_on_w0(:,df_w1,df_nodal) = f1_proxy%vspace%"
         "call_function(DIFF_BASIS,df_w1,nodes_w0(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
+        "        DO df_w2=1,ndf_w2\n"
+        "          basis_w2_on_w0(:,df_w2,df_nodal) = op1_proxy%fs_from%"
+        "call_function(BASIS,df_w2,nodes_w0(:,df_nodal))\n"
+        "        END DO \n"
+        "      END DO \n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w3=1,ndf_w3\n"
         "          diff_basis_w3_on_w0(:,df_w3,df_nodal) = f2_proxy%vspace%"
         "call_function(DIFF_BASIS,df_w3,nodes_w0(:,df_nodal))\n"
@@ -881,18 +890,16 @@ def test_two_eval_same_var_same_space(
     gen_code = str(psy.gen)
     print(gen_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # Test that generated code compiles
-        assert utils.code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
+        assert code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
 
     # We should only get one set of basis and diff-basis functions in the
     # generated code
     assert gen_code.count(
         "ndf_any_space_1_f0 = f0_proxy%vspace%get_ndf()") == 1
     assert gen_code.count(
-        "ndf_nodal_any_space_1_f0 = f0_proxy%vspace%get_ndf()") == 1
-    assert gen_code.count(
-        "      DO df_nodal=1,ndf_nodal_any_space_1_f0\n"
+        "      DO df_nodal=1,ndf_any_space_1_f0\n"
         "        DO df_w0=1,ndf_w0\n"
         "          basis_w0_on_any_space_1_f0(:,df_w0,df_nodal) = "
         "f1_proxy%vspace%call_function(BASIS,df_w0,"
@@ -900,7 +907,7 @@ def test_two_eval_same_var_same_space(
         "        END DO \n"
         "      END DO \n") == 1
     assert gen_code.count(
-        "      DO df_nodal=1,ndf_nodal_any_space_1_f0\n"
+        "      DO df_nodal=1,ndf_any_space_1_f0\n"
         "        DO df_w1=1,ndf_w1\n"
         "          diff_basis_w1_on_any_space_1_f0(:,df_w1,df_nodal) = "
         "f2_proxy%vspace%call_function(DIFF_BASIS,df_w1,"
@@ -923,9 +930,9 @@ def test_two_eval_op_to_space(tmpdir, f90, f90flags):
     gen_code = str(psy.gen)
     print(gen_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # Test that generated code compiles
-        assert utils.code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
+        assert code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
 
     # testkern_eval writes to W0. testkern_eval_op_to writes to W3.
     # testkern_eval requires basis fns on W0 and eval_op_to requires basis
@@ -938,71 +945,63 @@ def test_two_eval_op_to_space(tmpdir, f90, f90flags):
         "      ndf_w3 = f2_proxy%vspace%get_ndf()\n"
         "      undf_w3 = f2_proxy%vspace%get_undf()\n"
         "      !\n"
-        "      ! Initialise evaluator-related quantities using the field(s)"
-        " that are written to\n"
+        "      ! Initialise evaluator-related quantities for the target"
+        " function spaces\n"
         "      !\n"
-        "      ndf_nodal_w0 = f0_proxy%vspace%get_ndf()\n"
         "      nodes_w0 => f0_proxy%vspace%get_nodes()\n"
-        "      ndf_nodal_w3 = f2_proxy%vspace%get_ndf()\n"
         "      nodes_w3 => f2_proxy%vspace%get_nodes()\n"
     )
     assert init_code in gen_code
     alloc_code = (
         "      dim_w0 = f0_proxy%vspace%get_dim_space()\n"
-        "      ALLOCATE (basis_w0_on_w0(dim_w0, ndf_w0, ndf_nodal_w0))\n"
-        "      dim_w2 = op1_proxy%fs_to%get_dim_space()\n"
-        "      ALLOCATE (basis_w2_on_w3(dim_w2, ndf_w2, ndf_nodal_w3))\n"
-        "      !\n"
-        "      ! Allocate differential basis arrays\n"
-        "      !\n"
+        "      ALLOCATE (basis_w0_on_w0(dim_w0, ndf_w0, ndf_w0))\n"
         "      diff_dim_w1 = f1_proxy%vspace%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w1_on_w0(diff_dim_w1, ndf_w1, "
-        "ndf_nodal_w0))\n"
+        "ndf_w0))\n"
+        "      dim_w2 = op1_proxy%fs_to%get_dim_space()\n"
+        "      ALLOCATE (basis_w2_on_w3(dim_w2, ndf_w2, ndf_w3))\n"
         "      diff_dim_w2 = op1_proxy%fs_to%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w2_on_w3(diff_dim_w2, ndf_w2, "
-        "ndf_nodal_w3))\n"
+        "ndf_w3))\n"
         "      diff_dim_w3 = f2_proxy%vspace%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w3_on_w3(diff_dim_w3, ndf_w3, "
-        "ndf_nodal_w3))\n"
+        "ndf_w3))\n"
     )
     assert alloc_code in gen_code
+    # testkern_eval requires diff-basis fns on W1 and testkern_eval_op_to
+    # requires them on W2 and W3.
     basis_comp = (
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w0=1,ndf_w0\n"
         "          basis_w0_on_w0(:,df_w0,df_nodal) = f0_proxy%vspace%"
         "call_function(BASIS,df_w0,nodes_w0(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      DO df_nodal=1,ndf_nodal_w3\n"
-        "        DO df_w2=1,ndf_w2\n"
-        "          basis_w2_on_w3(:,df_w2,df_nodal) = op1_proxy%fs_to%"
-        "call_function(BASIS,df_w2,nodes_w3(:,df_nodal))\n"
-        "        END DO \n"
-        "      END DO \n")
-    assert basis_comp in gen_code
-    # testkern_eval requires diff-basis fns on W1 and testkern_eval_op_to
-    # requires them on W2 and W3.
-    diff_basis_comp = (
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w1=1,ndf_w1\n"
         "          diff_basis_w1_on_w0(:,df_w1,df_nodal) = f1_proxy%vspace%"
         "call_function(DIFF_BASIS,df_w1,nodes_w0(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      DO df_nodal=1,ndf_nodal_w3\n"
+        "      DO df_nodal=1,ndf_w3\n"
+        "        DO df_w2=1,ndf_w2\n"
+        "          basis_w2_on_w3(:,df_w2,df_nodal) = op1_proxy%fs_to%"
+        "call_function(BASIS,df_w2,nodes_w3(:,df_nodal))\n"
+        "        END DO \n"
+        "      END DO \n"
+        "      DO df_nodal=1,ndf_w3\n"
         "        DO df_w2=1,ndf_w2\n"
         "          diff_basis_w2_on_w3(:,df_w2,df_nodal) = op1_proxy%fs_to%"
         "call_function(DIFF_BASIS,df_w2,nodes_w3(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      DO df_nodal=1,ndf_nodal_w3\n"
+        "      DO df_nodal=1,ndf_w3\n"
         "        DO df_w3=1,ndf_w3\n"
         "          diff_basis_w3_on_w3(:,df_w3,df_nodal) = f2_proxy%vspace%"
         "call_function(DIFF_BASIS,df_w3,nodes_w3(:,df_nodal))\n"
         "        END DO \n"
-        "      END DO \n"
-    )
-    assert diff_basis_comp in gen_code
+        "      END DO \n")
+    assert basis_comp in gen_code
     kernel_calls = (
         "      DO cell=1,f0_proxy%vspace%get_ncell()\n"
         "        !\n"
@@ -1040,71 +1039,59 @@ def test_eval_diff_nodal_space(tmpdir, f90, f90flags):
     gen_code = str(psy.gen)
     print(gen_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # Test that generated code compiles
-        assert utils.code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
+        assert code_compiles("dynamo0.3", psy, tmpdir, f90, f90flags)
 
     expected_alloc = (
-        "      ndf_nodal_w3 = f1_proxy%vspace%get_ndf()\n"
         "      nodes_w3 => f1_proxy%vspace%get_nodes()\n"
-        "      ndf_nodal_w0 = f2_proxy%vspace%get_ndf()\n"
-        "      nodes_w0 => f2_proxy%vspace%get_nodes()\n"
+        "      nodes_w0 => op1_proxy%fs_from%get_nodes()\n"
         "      !\n"
-        "      ! Allocate basis arrays\n"
+        "      ! Allocate basis/diff-basis arrays\n"
         "      !\n"
         "      dim_w2 = op2_proxy%fs_to%get_dim_space()\n"
-        "      ALLOCATE (basis_w2_on_w3(dim_w2, ndf_w2, ndf_nodal_w3))\n"
-        "      ALLOCATE (basis_w2_on_w0(dim_w2, ndf_w2, ndf_nodal_w0))\n"
-        "      !\n"
-        "      ! Allocate differential basis arrays\n"
-        "      !\n"
+        "      ALLOCATE (basis_w2_on_w3(dim_w2, ndf_w2, ndf_w3))\n"
         "      diff_dim_w2 = op2_proxy%fs_to%get_dim_space_diff()\n"
-        "      ALLOCATE (diff_basis_w2_on_w3(diff_dim_w2, ndf_w2, "
-        "ndf_nodal_w3))\n"
+        "      ALLOCATE (diff_basis_w2_on_w3(diff_dim_w2, ndf_w2, ndf_w3))\n"
         "      diff_dim_w3 = f1_proxy%vspace%get_dim_space_diff()\n"
-        "      ALLOCATE (diff_basis_w3_on_w3(diff_dim_w3, ndf_w3, "
-        "ndf_nodal_w3))\n"
-        "      ALLOCATE (diff_basis_w2_on_w0(diff_dim_w2, ndf_w2, "
-        "ndf_nodal_w0))\n"
-        "      ALLOCATE (diff_basis_w3_on_w0(diff_dim_w3, ndf_w3, "
-        "ndf_nodal_w0))\n"
+        "      ALLOCATE (diff_basis_w3_on_w3(diff_dim_w3, ndf_w3, ndf_w3))\n"
+        "      ALLOCATE (basis_w2_on_w0(dim_w2, ndf_w2, ndf_w0))\n"
+        "      ALLOCATE (diff_basis_w2_on_w0(diff_dim_w2, ndf_w2, ndf_w0))\n"
+        "      ALLOCATE (diff_basis_w3_on_w0(diff_dim_w3, ndf_w3, ndf_w0))\n"
     )
     assert expected_alloc in gen_code
     expected_compute = (
-        "      DO df_nodal=1,ndf_nodal_w3\n"
+        "      DO df_nodal=1,ndf_w3\n"
         "        DO df_w2=1,ndf_w2\n"
         "          basis_w2_on_w3(:,df_w2,df_nodal) = op2_proxy%fs_to%"
         "call_function(BASIS,df_w2,nodes_w3(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
-        "        DO df_w2=1,ndf_w2\n"
-        "          basis_w2_on_w0(:,df_w2,df_nodal) = op1_proxy%fs_to%"
-        "call_function(BASIS,df_w2,nodes_w0(:,df_nodal))\n"
-        "        END DO \n"
-        "      END DO \n"
-        "      !\n"
-        "      ! Compute differential basis arrays\n"
-        "      !\n"
-        "      DO df_nodal=1,ndf_nodal_w3\n"
+        "      DO df_nodal=1,ndf_w3\n"
         "        DO df_w2=1,ndf_w2\n"
         "          diff_basis_w2_on_w3(:,df_w2,df_nodal) = op2_proxy%fs_to%"
         "call_function(DIFF_BASIS,df_w2,nodes_w3(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      DO df_nodal=1,ndf_nodal_w3\n"
+        "      DO df_nodal=1,ndf_w3\n"
         "        DO df_w3=1,ndf_w3\n"
         "          diff_basis_w3_on_w3(:,df_w3,df_nodal) = f1_proxy%vspace%"
         "call_function(DIFF_BASIS,df_w3,nodes_w3(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
+        "        DO df_w2=1,ndf_w2\n"
+        "          basis_w2_on_w0(:,df_w2,df_nodal) = op1_proxy%fs_to%"
+        "call_function(BASIS,df_w2,nodes_w0(:,df_nodal))\n"
+        "        END DO \n"
+        "      END DO \n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w2=1,ndf_w2\n"
         "          diff_basis_w2_on_w0(:,df_w2,df_nodal) = op1_proxy%fs_to%"
         "call_function(DIFF_BASIS,df_w2,nodes_w0(:,df_nodal))\n"
         "        END DO \n"
         "      END DO \n"
-        "      DO df_nodal=1,ndf_nodal_w0\n"
+        "      DO df_nodal=1,ndf_w0\n"
         "        DO df_w3=1,ndf_w3\n"
         "          diff_basis_w3_on_w0(:,df_w3,df_nodal) = f0_proxy%vspace%"
         "call_function(DIFF_BASIS,df_w3,nodes_w0(:,df_nodal))\n"
@@ -1140,6 +1127,188 @@ def test_eval_diff_nodal_space(tmpdir, f90, f90flags):
     assert expected_dealloc in gen_code
 
 
+def test_eval_2fs(tmpdir, f90, f90flags):
+    ''' Test that we generate correct code when a kernel requires that
+    a differential basis function be evaluated on two different FS. '''
+    _, invoke_info = parse(
+        os.path.join(BASE_PATH,
+                     "6.8_eval_2fs_invoke.f90"),
+        api="dynamo0.3")
+    psy = PSyFactory("dynamo0.3", distributed_memory=False).create(invoke_info)
+    gen_code = str(psy.gen)
+
+    assert ("      REAL(KIND=r_def), allocatable :: "
+            "diff_basis_w1_on_w0(:,:,:), diff_basis_w1_on_w1(:,:,:)\n"
+            "      INTEGER diff_dim_w1\n" in
+            gen_code)
+    assert("      diff_dim_w1 = f1_proxy%vspace%get_dim_space_diff()\n"
+           "      ALLOCATE (diff_basis_w1_on_w0(diff_dim_w1, ndf_w1, "
+           "ndf_w0))\n"
+           "      ALLOCATE (diff_basis_w1_on_w1(diff_dim_w1, ndf_w1, "
+           "ndf_w1))\n" in gen_code)
+    assert ("CALL testkern_eval_2fs_code(nlayers, f0_proxy%data, "
+            "f1_proxy%data, ndf_w0, undf_w0, map_w0(:,cell), ndf_w1, undf_w1, "
+            "map_w1(:,cell), diff_basis_w1_on_w0, diff_basis_w1_on_w1)" in
+            gen_code)
+    if TEST_COMPILE:
+        assert code_compiles(API, psy, tmpdir, f90, f90flags)
+
+
+def test_2eval_2fs(tmpdir, f90, f90flags):
+    ''' Test that we generate correct code when we have an invoke with two
+    kernels that both require a differential basis function that is evaluated
+    on the same two FSs. '''
+    _, invoke_info = parse(
+        os.path.join(BASE_PATH,
+                     "6.9_2eval_2fs_invoke.f90"), api=API)
+    psy = PSyFactory(API, distributed_memory=False).create(invoke_info)
+    gen_code = str(psy.gen)
+
+    assert ("REAL(KIND=r_def), allocatable :: diff_basis_w1_on_w0(:,:,:), "
+            "diff_basis_w1_on_w1(:,:,:)\n" in gen_code)
+    # Check for duplication
+    for idx in range(2):
+        assert gen_code.count("REAL(KIND=r_def), pointer :: nodes_w{0}(:,:) "
+                              "=> null()".format(idx)) == 1
+        assert gen_code.count(
+            "      nodes_w{0} => f{0}_proxy%vspace%get_nodes()\n".
+            format(idx)) == 1
+
+        assert gen_code.count("ALLOCATE (diff_basis_w1_on_w{0}(diff_dim_w1, "
+                              "ndf_w1, ndf_w{0}))".format(idx)) == 1
+
+        assert gen_code.count(
+            "diff_basis_w1_on_w{0}(:,df_w1,df_nodal) = f1_proxy%vspace%"
+            "call_function(DIFF_BASIS,df_w1,nodes_w{0}(:,df_nodal))".
+            format(idx)) == 1
+    if TEST_COMPILE:
+        assert code_compiles(API, psy, tmpdir, f90, f90flags)
+
+
+def test_2eval_1qr_2fs(tmpdir, f90, f90flags):
+    ''' Test that we generate correct code for an invoke requiring multiple,
+    different evaluators *and* quadrature. '''
+    _, invoke_info = parse(
+        os.path.join(BASE_PATH,
+                     "6.10_2eval_2fs_qr_invoke.f90"), api=API)
+    psy = PSyFactory(API, distributed_memory=False).create(invoke_info)
+    gen_code = str(psy.gen)
+    print(gen_code)
+    assert gen_code.count(
+        "REAL(KIND=r_def), allocatable :: diff_basis_w1_on_w0(:,:,:), "
+        "diff_basis_w1_on_w1(:,:,:), basis_w2_on_w0(:,:,:), "
+        "diff_basis_w3_on_w0(:,:,:), basis_w1_qr_data(:,:,:,:), "
+        "diff_basis_w2_qr_data(:,:,:,:), basis_w3_qr_data(:,:,:,:), "
+        "diff_basis_w3_qr_data(:,:,:,:)\n") == 1
+
+    # 1st kernel requires diff basis on W1, evaluated at W0 and W1
+    # 2nd kernel requires diff basis on W3, evaluated at W0
+    assert gen_code.count(
+        "      diff_dim_w1 = f1_proxy%vspace%get_dim_space_diff()\n"
+        "      ALLOCATE (diff_basis_w1_on_w0(diff_dim_w1, ndf_w1, ndf_w0))\n"
+        "      ALLOCATE (diff_basis_w1_on_w1(diff_dim_w1, ndf_w1, "
+        "ndf_w1))\n") == 1
+    assert gen_code.count(
+        "      diff_dim_w3 = m2_proxy%vspace%get_dim_space_diff()\n"
+        "      ALLOCATE (diff_basis_w3_on_w0(diff_dim_w3, ndf_w3, "
+        "ndf_w0))\n") == 1
+
+    assert gen_code.count(
+        "      DO df_nodal=1,ndf_w0\n"
+        "        DO df_w1=1,ndf_w1\n"
+        "          diff_basis_w1_on_w0(:,df_w1,df_nodal) = "
+        "f1_proxy%vspace%call_function(DIFF_BASIS,df_w1,nodes_w0(:,"
+        "df_nodal))\n"
+        "        END DO \n"
+        "      END DO \n") == 1
+    assert gen_code.count(
+        "      DO df_nodal=1,ndf_w1\n"
+        "        DO df_w1=1,ndf_w1\n"
+        "          diff_basis_w1_on_w1(:,df_w1,df_nodal) = f1_proxy%vspace%"
+        "call_function(DIFF_BASIS,df_w1,nodes_w1(:,df_nodal))\n"
+        "        END DO \n"
+        "      END DO \n") == 1
+    assert gen_code.count(
+        "      DO df_nodal=1,ndf_w0\n"
+        "        DO df_w3=1,ndf_w3\n"
+        "          diff_basis_w3_on_w0(:,df_w3,df_nodal) = m2_proxy%vspace%"
+        "call_function(DIFF_BASIS,df_w3,nodes_w0(:,df_nodal))\n"
+        "        END DO \n"
+        "      END DO \n") == 1
+
+    # 2nd kernel requires basis on W2 and diff-basis on W3, both evaluated
+    # on W0 (the to-space of the operator that is written to)
+    assert gen_code.count(
+        "      dim_w2 = op1_proxy%fs_from%get_dim_space()\n"
+        "      ALLOCATE (basis_w2_on_w0(dim_w2, ndf_w2, ndf_w0))\n") == 1
+
+    assert gen_code.count(
+        "      DO df_nodal=1,ndf_w0\n"
+        "        DO df_w2=1,ndf_w2\n"
+        "          basis_w2_on_w0(:,df_w2,df_nodal) = op1_proxy%fs_from%"
+        "call_function(BASIS,df_w2,nodes_w0(:,df_nodal))\n"
+        "        END DO \n"
+        "      END DO \n") == 1
+
+    # 3rd kernel requires XYoZ quadrature: basis on W1, diff basis on W2 and
+    # basis+diff basis on W3.
+    assert gen_code.count(
+        "      CALL qr_data%compute_function(DIFF_BASIS, f2_proxy%vspace, "
+        "diff_dim_w2, ndf_w2, diff_basis_w2_qr_data)\n") == 1
+    assert gen_code.count(
+        "      CALL qr_data%compute_function(DIFF_BASIS, m2_proxy%vspace, "
+        "diff_dim_w3, ndf_w3, diff_basis_w3_qr_data)\n") == 1
+
+    assert ("      DO cell=1,f0_proxy%vspace%get_ncell()\n"
+            "        !\n"
+            "        CALL testkern_eval_2fs_code(nlayers, f0_proxy%data, "
+            "f1_proxy%data, ndf_w0, undf_w0, map_w0(:,cell), ndf_w1, "
+            "undf_w1, map_w1(:,cell), diff_basis_w1_on_w0, "
+            "diff_basis_w1_on_w1)\n"
+            "      END DO \n"
+            "      DO cell=1,op1_proxy%fs_from%get_ncell()\n"
+            "        !\n"
+            "        CALL testkern_eval_op_code(cell, nlayers, "
+            "op1_proxy%ncell_3d, op1_proxy%local_stencil, m2_proxy%data, "
+            "ndf_w0, ndf_w2, basis_w2_on_w0, ndf_w3, undf_w3, map_w3(:,cell),"
+            " diff_basis_w3_on_w0)\n"
+            "      END DO \n"
+            "      DO cell=1,f1_proxy%vspace%get_ncell()\n"
+            "        !\n"
+            "        CALL testkern_qr_code(nlayers, f1_proxy%data, "
+            "f2_proxy%data, m1_proxy%data, a, m2_proxy%data, istp, ndf_w1, "
+            "undf_w1, map_w1(:,cell), basis_w1_qr_data, ndf_w2, undf_w2, "
+            "map_w2(:,cell), diff_basis_w2_qr_data, ndf_w3, undf_w3, "
+            "map_w3(:,cell), basis_w3_qr_data, diff_basis_w3_qr_data, "
+            "np_xy_qr_data, np_z_qr_data, weights_xy_qr_data, "
+            "weights_z_qr_data)\n"
+            "      END DO \n" in gen_code)
+
+    assert gen_code.count(
+        "DEALLOCATE (basis_w1_qr_data, basis_w2_on_w0, basis_w3_qr_data, "
+        "diff_basis_w1_on_w0, diff_basis_w1_on_w1, diff_basis_w2_qr_data, "
+        "diff_basis_w3_on_w0, diff_basis_w3_qr_data)\n") == 1
+
+    if TEST_COMPILE:
+        assert code_compiles(API, psy, tmpdir, f90, f90flags)
+
+
+def test_eval_agglomerate(tmpdir, f90, f90flags):
+    ''' Check that we aglomerate evaluators when different kernels require
+    the same function on the same space but evaluated on different spaces. '''
+    _, invoke_info = parse(
+        os.path.join(BASE_PATH,
+                     "6.11_2eval_2kern_invoke.f90"), api=API)
+    psy = PSyFactory(API, distributed_memory=False).create(invoke_info)
+    gen_code = str(psy.gen)
+    # We should compute differential basis functions for W1 evaluated on both
+    # W0 and W1.
+    assert gen_code.count("diff_basis_w1_on_w0(:,df_w1,df_nodal) = ") == 1
+    assert gen_code.count("diff_basis_w1_on_w1(:,df_w1,df_nodal) = ") == 1
+    if TEST_COMPILE:
+        assert code_compiles(API, psy, tmpdir, f90, f90flags)
+
+
 BASIS_EVAL = '''
 module dummy_mod
   type, extends(kernel_type) :: dummy_type
@@ -1161,10 +1330,10 @@ module dummy_mod
              func_type(w2h, gh_basis),    &
              func_type(w2v, gh_basis)     &
            /)
-     integer, parameter :: iterates_over = cells
-     integer, parameter :: gh_shape = gh_evaluator
+     integer :: iterates_over = cells
+     integer :: gh_shape = gh_evaluator
    contains
-     procedure() :: code => dummy_code
+     procedure, nopass :: code => dummy_code
   end type dummy_type
 contains
   subroutine dummy_code()
@@ -1186,10 +1355,10 @@ def test_basis_evaluator():
         "    SUBROUTINE dummy_code(cell, nlayers, field_1_w0, op_2_ncell_3d, "
         "op_2, field_3_w2, op_4_ncell_3d, op_4, field_5_wtheta, "
         "op_6_ncell_3d, op_6, field_7_w2v, ndf_w0, undf_w0, map_w0, "
-        "basis_w0, ndf_w1, basis_w1, ndf_w2, undf_w2, map_w2, basis_w2, "
-        "ndf_w3, basis_w3, ndf_wtheta, undf_wtheta, map_wtheta, "
-        "basis_wtheta, ndf_w2h, basis_w2h, ndf_w2v, undf_w2v, map_w2v, "
-        "basis_w2v)\n")
+        "basis_w0_on_w0, ndf_w1, basis_w1_on_w0, ndf_w2, undf_w2, map_w2, "
+        "basis_w2_on_w0, ndf_w3, basis_w3_on_w0, ndf_wtheta, undf_wtheta, "
+        "map_wtheta, basis_wtheta_on_w0, ndf_w2h, basis_w2h_on_w0, ndf_w2v, "
+        "undf_w2v, map_w2v, basis_w2v_on_w0)\n")
     assert output_arg_list in generated_code
     output_declns = (
         "      INTEGER, intent(in) :: cell\n"
@@ -1224,22 +1393,22 @@ def test_basis_evaluator():
         "field_7_w2v\n"
         "      INTEGER, intent(in), dimension(ndf_w0) :: map_w0\n"
         "      REAL(KIND=r_def), intent(in), dimension(1,ndf_w0,ndf_w0) :: "
-        "basis_w0\n"
+        "basis_w0_on_w0\n"
         "      REAL(KIND=r_def), intent(in), dimension(3,ndf_w1,ndf_w0) :: "
-        "basis_w1\n"
+        "basis_w1_on_w0\n"
         "      INTEGER, intent(in), dimension(ndf_w2) :: map_w2\n"
         "      REAL(KIND=r_def), intent(in), dimension(3,ndf_w2,ndf_w0) :: "
-        "basis_w2\n"
+        "basis_w2_on_w0\n"
         "      REAL(KIND=r_def), intent(in), dimension(1,ndf_w3,ndf_w0) :: "
-        "basis_w3\n"
+        "basis_w3_on_w0\n"
         "      INTEGER, intent(in), dimension(ndf_wtheta) :: map_wtheta\n"
         "      REAL(KIND=r_def), intent(in), dimension(1,ndf_wtheta,ndf_w0) ::"
-        " basis_wtheta\n"
+        " basis_wtheta_on_w0\n"
         "      REAL(KIND=r_def), intent(in), dimension(3,ndf_w2h,ndf_w0) :: "
-        "basis_w2h\n"
+        "basis_w2h_on_w0\n"
         "      INTEGER, intent(in), dimension(ndf_w2v) :: map_w2v\n"
         "      REAL(KIND=r_def), intent(in), dimension(3,ndf_w2v,ndf_w0) :: "
-        "basis_w2v\n"
+        "basis_w2v_on_w0\n"
     )
     assert output_declns in generated_code
 
@@ -1253,10 +1422,10 @@ module dummy_mod
      type(func_type), meta_funcs(1) =    &
           (/ func_type(any_space_1, gh_basis) &
            /)
-     integer, parameter :: iterates_over = cells
-     integer, parameter :: gh_shape = gh_quadrature_XYoZ
+     integer :: iterates_over = cells
+     integer :: gh_shape = gh_quadrature_XYoZ
    contains
-     procedure() :: code => dummy_code
+     procedure, nopass :: code => dummy_code
   end type dummy_type
 contains
   subroutine dummy_code()
@@ -1299,10 +1468,10 @@ module dummy_mod
              func_type(w2h, gh_diff_basis),    &
              func_type(w2v, gh_diff_basis)     &
            /)
-     integer, parameter :: iterates_over = cells
-     integer, parameter :: gh_shape = gh_quadrature_XYoZ
+     integer :: iterates_over = cells
+     integer :: gh_shape = gh_quadrature_XYoZ
    contains
-     procedure() :: code => dummy_code
+     procedure, nopass :: code => dummy_code
   end type dummy_type
 contains
   subroutine dummy_code()
@@ -1318,7 +1487,7 @@ def test_diff_basis():
     metadata = DynKernMetadata(ast)
     kernel = DynKern()
     kernel.load_meta(metadata)
-    generated_code = kernel.gen_stub
+    generated_code = str(kernel.gen_stub)
     output = (
         "  MODULE dummy_mod\n"
         "    IMPLICIT NONE\n"
@@ -1387,10 +1556,13 @@ def test_diff_basis():
         "    END SUBROUTINE dummy_code\n"
         "  END MODULE dummy_mod")
     print(output)
-    print(str(generated_code))
-    assert str(generated_code).find(output) != -1
+    print(generated_code)
+    assert output in generated_code
 
 
+# Meta-data for a kernel that requires differential basis functions
+# evaluated only on W2 (the to-space of the operator that this kernel
+# writes to).
 DIFF_BASIS_EVAL = '''
 module dummy_mod
   type, extends(kernel_type) :: dummy_type
@@ -1412,10 +1584,10 @@ module dummy_mod
              func_type(w2h, gh_diff_basis),    &
              func_type(w2v, gh_diff_basis)     &
            /)
-     integer, parameter :: iterates_over = cells
-     integer, parameter :: gh_shape = gh_evaluator
+     integer :: iterates_over = cells
+     integer :: gh_shape = gh_evaluator
    contains
-     procedure() :: code => dummy_code
+     procedure, nopass :: code => dummy_code
   end type dummy_type
 contains
   subroutine dummy_code()
@@ -1440,11 +1612,11 @@ def test_diff_basis_eval():
         "    SUBROUTINE dummy_code(cell, nlayers, field_1_w0, op_2_ncell_3d, "
         "op_2, field_3_w2, op_4_ncell_3d, op_4, field_5_wtheta, "
         "op_6_ncell_3d, op_6, field_7_w2v, ndf_w0, undf_w0, map_w0, "
-        "diff_basis_w0, ndf_w2, undf_w2, map_w2, diff_basis_w2, "
-        "ndf_w1, diff_basis_w1, ndf_w3, diff_basis_w3, ndf_wtheta, "
-        "undf_wtheta, map_wtheta, diff_basis_wtheta, ndf_w2h, diff_basis_w2h,"
-        " ndf_w2v, undf_w2v, map_w2v, diff_basis_w2v)\n"
-    )
+        "diff_basis_w0_on_w2, ndf_w2, undf_w2, map_w2, diff_basis_w2_on_w2, "
+        "ndf_w1, diff_basis_w1_on_w2, ndf_w3, diff_basis_w3_on_w2, "
+        "ndf_wtheta, undf_wtheta, map_wtheta, diff_basis_wtheta_on_w2, "
+        "ndf_w2h, diff_basis_w2h_on_w2, ndf_w2v, undf_w2v, map_w2v, "
+        "diff_basis_w2v_on_w2)\n")
     assert output_args in generated_code
     output_declns = (
         "      INTEGER, intent(in) :: cell\n"
@@ -1479,25 +1651,87 @@ def test_diff_basis_eval():
         "field_7_w2v\n"
         "      INTEGER, intent(in), dimension(ndf_w0) :: map_w0\n"
         "      REAL(KIND=r_def), intent(in), dimension(3,ndf_w0,ndf_w2) "
-        ":: diff_basis_w0\n"
+        ":: diff_basis_w0_on_w2\n"
         "      INTEGER, intent(in), dimension(ndf_w2) :: map_w2\n"
         "      REAL(KIND=r_def), intent(in), dimension(1,ndf_w2,ndf_w2) "
-        ":: diff_basis_w2\n"
+        ":: diff_basis_w2_on_w2\n"
         "      REAL(KIND=r_def), intent(in), dimension(3,ndf_w1,ndf_w2) "
-        ":: diff_basis_w1\n"
+        ":: diff_basis_w1_on_w2\n"
         "      REAL(KIND=r_def), intent(in), dimension(3,ndf_w3,ndf_w2) "
-        ":: diff_basis_w3\n"
+        ":: diff_basis_w3_on_w2\n"
         "      INTEGER, intent(in), dimension(ndf_wtheta) :: map_wtheta\n"
         "      REAL(KIND=r_def), intent(in), dimension(3,ndf_wtheta,ndf_w2) "
-        ":: diff_basis_wtheta\n"
+        ":: diff_basis_wtheta_on_w2\n"
         "      REAL(KIND=r_def), intent(in), dimension(1,ndf_w2h,ndf_w2) "
-        ":: diff_basis_w2h\n"
+        ":: diff_basis_w2h_on_w2\n"
         "      INTEGER, intent(in), dimension(ndf_w2v) :: map_w2v\n"
         "      REAL(KIND=r_def), intent(in), dimension(1,ndf_w2v,ndf_w2) "
-        ":: diff_basis_w2v\n"
+        ":: diff_basis_w2v_on_w2\n"
         "    END SUBROUTINE dummy_code\n"
     )
     assert output_declns in generated_code
+
+
+def test_2eval_stubgen():
+    ''' Check that we generate the correct kernel stub when an evaluator is
+    required on more than one space. '''
+    # Modify the meta-data so that it specifies that evaluators be provided
+    # on two function spaces
+    twoeval_meta = DIFF_BASIS_EVAL.replace(
+        "     integer :: gh_shape = gh_evaluator\n",
+        "     integer :: gh_shape = gh_evaluator\n"
+        "     integer :: gh_evaluator_targets(2) = (/w2h, wtheta/)\n")
+    ast = fpapi.parse(twoeval_meta, ignore_comments=False)
+    metadata = DynKernMetadata(ast)
+    kernel = DynKern()
+    kernel.load_meta(metadata)
+    generated_code = str(kernel.gen_stub)
+    print(generated_code)
+
+    assert (
+        "SUBROUTINE dummy_code(cell, nlayers, field_1_w0, op_2_ncell_3d, op_2,"
+        " field_3_w2, op_4_ncell_3d, op_4, field_5_wtheta, op_6_ncell_3d, "
+        "op_6, field_7_w2v, ndf_w0, undf_w0, map_w0, diff_basis_w0_on_w2h, "
+        "diff_basis_w0_on_wtheta, ndf_w2, undf_w2, map_w2, "
+        "diff_basis_w2_on_w2h, diff_basis_w2_on_wtheta, ndf_w1, "
+        "diff_basis_w1_on_w2h, diff_basis_w1_on_wtheta, ndf_w3, "
+        "diff_basis_w3_on_w2h, diff_basis_w3_on_wtheta, ndf_wtheta, "
+        "undf_wtheta, map_wtheta, diff_basis_wtheta_on_w2h, "
+        "diff_basis_wtheta_on_wtheta, ndf_w2h, diff_basis_w2h_on_w2h, "
+        "diff_basis_w2h_on_wtheta, ndf_w2v, undf_w2v, map_w2v, "
+        "diff_basis_w2v_on_w2h, diff_basis_w2v_on_wtheta)" in
+        generated_code)
+
+    assert (
+        "      INTEGER, intent(in) :: cell\n"
+        "      INTEGER, intent(in) :: nlayers\n"
+        "      INTEGER, intent(in) :: ndf_w0\n"
+        "      INTEGER, intent(in) :: undf_w0\n"
+        "      INTEGER, intent(in) :: ndf_w2\n"
+        "      INTEGER, intent(in) :: undf_w2\n"
+        "      INTEGER, intent(in) :: ndf_w1\n"
+        "      INTEGER, intent(in) :: ndf_w3\n"
+        "      INTEGER, intent(in) :: ndf_wtheta\n"
+        "      INTEGER, intent(in) :: undf_wtheta\n"
+        "      INTEGER, intent(in) :: ndf_w2h\n"
+        "      INTEGER, intent(in) :: ndf_w2v\n"
+        "      INTEGER, intent(in) :: undf_w2v\n" in generated_code)
+
+    for space in ["w2h", "wtheta"]:
+        assert ("REAL(KIND=r_def), intent(in), dimension(3,ndf_w0,ndf_{0}) "
+                ":: diff_basis_w0_on_{0}".format(space) in generated_code)
+        assert ("REAL(KIND=r_def), intent(in), dimension(1,ndf_w2,ndf_{0}) "
+                ":: diff_basis_w2_on_{0}".format(space) in generated_code)
+        assert ("REAL(KIND=r_def), intent(in), dimension(3,ndf_w1,ndf_{0}) "
+                ":: diff_basis_w1_on_{0}".format(space) in generated_code)
+        assert ("REAL(KIND=r_def), intent(in), dimension(3,ndf_w3,ndf_{0}) "
+                ":: diff_basis_w3_on_{0}".format(space) in generated_code)
+        assert ("REAL(KIND=r_def), intent(in), dimension(3,ndf_wtheta,ndf_{0})"
+                " :: diff_basis_wtheta_on_{0}".format(space) in generated_code)
+        assert ("REAL(KIND=r_def), intent(in), dimension(1,ndf_w2h,ndf_{0}) "
+                ":: diff_basis_w2h_on_{0}".format(space) in generated_code)
+        assert ("REAL(KIND=r_def), intent(in), dimension(1,ndf_w2v,ndf_{0}) "
+                ":: diff_basis_w2v_on_{0}".format(space) in generated_code)
 
 
 DIFF_BASIS_UNSUPPORTED_SPACE = '''
@@ -1509,10 +1743,10 @@ module dummy_mod
      type(func_type), meta_funcs(1) =    &
           (/ func_type(any_space_1, gh_diff_basis) &
            /)
-     integer, parameter :: iterates_over = cells
-     integer, parameter :: gh_shape = gh_quadrature_XYoZ
+     integer :: iterates_over = cells
+     integer :: gh_shape = gh_quadrature_XYoZ
    contains
-     procedure() :: code => dummy_code
+     procedure, nopass :: code => dummy_code
   end type dummy_type
 contains
   subroutine dummy_code()

@@ -31,7 +31,7 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 # -----------------------------------------------------------------------------
-# Author R. Ford and A. R. Porter, STFC Daresbury Lab
+# Authors R. W. Ford and A. R. Porter, STFC Daresbury Lab
 # Modified I. Kavcic, Met Office
 
 ''' This module tests the Dynamo 0.3 API using pytest. '''
@@ -44,7 +44,7 @@ import pytest
 import fparser
 from fparser import api as fpapi
 from psyclone.parse import parse, ParseError
-from psyclone.psyGen import PSyFactory, GenerationError
+from psyclone.psyGen import PSyFactory, GenerationError, InternalError
 from psyclone.dynamo0p3 import DynKernMetadata, DynKern, \
     DynLoop, DynGlobalSum, HaloReadAccess, FunctionSpace, \
     VALID_STENCIL_TYPES, VALID_SCALAR_NAMES, \
@@ -52,8 +52,8 @@ from psyclone.dynamo0p3 import DynKernMetadata, DynKern, \
     VALID_ANY_SPACE_NAMES
 from psyclone.transformations import LoopFuseTrans
 from psyclone.gen_kernel_stub import generate
-from psyclone.configuration import ConfigFactory
-import utils
+from psyclone.configuration import Config
+from psyclone_test_utils import code_compiles, TEST_COMPILE
 
 # constants
 BASE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -65,10 +65,6 @@ ROOT_PATH = os.path.dirname(os.path.dirname(os.path.dirname(
 DEFAULT_CFG_FILE = os.path.join(ROOT_PATH, "config", "psyclone.cfg")
 
 TEST_API = "dynamo0.3"
-
-# Our configuration objects
-_CONFIG = ConfigFactory().create()
-_API_CONFIG = _CONFIG.api(TEST_API)
 
 
 # tests
@@ -626,9 +622,9 @@ def test_field(tmpdir, f90, f90flags):
                            api=TEST_API)
     psy = PSyFactory(TEST_API, distributed_memory=False).create(invoke_info)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
     generated_code = psy.gen
     output = (
@@ -833,10 +829,10 @@ def test_field_fs(tmpdir, f90, f90flags):
                            api=TEST_API)
     psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled
         # (--compile --f90="<compiler_name>" flags to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
     generated_code = psy.gen
     output = (
@@ -1522,9 +1518,9 @@ def test_operator_different_spaces(tmpdir, f90, f90flags):
     generated_code = str(psy.gen)
     print(generated_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
     decl_output = (
         "    SUBROUTINE invoke_0_assemble_weak_derivative_w3_w2_kernel_type"
@@ -1540,9 +1536,9 @@ def test_operator_different_spaces(tmpdir, f90, f90flags):
         "      TYPE(quadrature_xyoz_type), intent(in) :: qr\n"
         "      INTEGER, pointer :: orientation_w2(:) => null()\n"
         "      INTEGER cell\n"
-        "      REAL(KIND=r_def), allocatable :: basis_w3_qr(:,:,:,:), "
-        "diff_basis_w0_qr(:,:,:,:), diff_basis_w2_qr(:,:,:,:)\n"
-        "      INTEGER dim_w3, diff_dim_w0, diff_dim_w2\n"
+        "      REAL(KIND=r_def), allocatable :: diff_basis_w0_qr(:,:,:,:), "
+        "basis_w3_qr(:,:,:,:), diff_basis_w2_qr(:,:,:,:)\n"
+        "      INTEGER diff_dim_w0, dim_w3, diff_dim_w2\n"
         "      REAL(KIND=r_def), pointer :: weights_xy_qr(:) => null(), "
         "weights_z_qr(:) => null()\n"
         "      INTEGER np_xy_qr, np_z_qr\n"
@@ -1596,29 +1592,23 @@ def test_operator_different_spaces(tmpdir, f90, f90flags):
         "      weights_xy_qr => qr_proxy%weights_xy\n"
         "      weights_z_qr => qr_proxy%weights_z\n"
         "      !\n"
-        "      ! Allocate basis arrays\n"
-        "      !\n"
-        "      dim_w3 = mapping_proxy%fs_to%get_dim_space()\n"
-        "      ALLOCATE (basis_w3_qr(dim_w3, ndf_w3, np_xy_qr, np_z_qr))\n"
-        "      !\n"
-        "      ! Allocate differential basis arrays\n"
+        "      ! Allocate basis/diff-basis arrays\n"
         "      !\n"
         "      diff_dim_w0 = chi_proxy(1)%vspace%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w0_qr(diff_dim_w0, ndf_w0, np_xy_qr, "
         "np_z_qr))\n"
+        "      dim_w3 = mapping_proxy%fs_to%get_dim_space()\n"
+        "      ALLOCATE (basis_w3_qr(dim_w3, ndf_w3, np_xy_qr, np_z_qr))\n"
         "      diff_dim_w2 = mapping_proxy%fs_from%get_dim_space_diff()\n"
         "      ALLOCATE (diff_basis_w2_qr(diff_dim_w2, ndf_w2, np_xy_qr, "
         "np_z_qr))\n"
         "      !\n"
-        "      ! Compute basis arrays\n"
-        "      !\n"
-        "      CALL qr%compute_function(BASIS, mapping_proxy%fs_to, "
-        "dim_w3, ndf_w3, basis_w3_qr)\n"
-        "      !\n"
-        "      ! Compute differential basis arrays\n"
+        "      ! Compute basis/diff-basis arrays\n"
         "      !\n"
         "      CALL qr%compute_function(DIFF_BASIS, chi_proxy(1)%vspace, "
         "diff_dim_w0, ndf_w0, diff_basis_w0_qr)\n"
+        "      CALL qr%compute_function(BASIS, mapping_proxy%fs_to, "
+        "dim_w3, ndf_w3, basis_w3_qr)\n"
         "      CALL qr%compute_function(DIFF_BASIS, mapping_proxy%fs_from, "
         "diff_dim_w2, ndf_w2, diff_basis_w2_qr)\n"
         "      !\n"
@@ -1668,9 +1658,9 @@ def test_operator_nofield(tmpdir, f90, f90flags):
     gen_code_str = str(psy.gen)
     print(gen_code_str)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
     assert gen_code_str.find("SUBROUTINE invoke_0_testkern_operator_"
                              "nofield_type(mm_w2, chi, qr)") != -1
@@ -1700,9 +1690,9 @@ def test_operator_nofield_different_space(
     gen = str(psy.gen)
     print(gen)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
     assert "mesh => my_mapping%get_mesh()" in gen
     assert "nlayers = my_mapping_proxy%fs_from%get_nlayers()" in gen
@@ -1747,8 +1737,8 @@ def test_operator_nofield_scalar_deref(
         gen = str(psy.gen)
         print(gen)
 
-        if utils.TEST_COMPILE:
-            assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        if TEST_COMPILE:
+            assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
         if dist_mem:
             assert "mesh => opbox_my_mapping%get_mesh()" in gen
@@ -1780,8 +1770,8 @@ def test_operator_orientation(tmpdir, f90, f90flags):
     gen_str = str(psy.gen)
     print(gen_str)
 
-    if utils.TEST_COMPILE:
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+    if TEST_COMPILE:
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
     assert gen_str.find("SUBROUTINE invoke_0_testkern_operator"
                         "_orient_type(mm_w1, chi, qr)") != -1
@@ -1813,8 +1803,8 @@ def test_op_orient_different_space(
     gen_str = str(psy.gen)
     print(gen_str)
 
-    if utils.TEST_COMPILE:
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+    if TEST_COMPILE:
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
     assert (
         "INTEGER, pointer :: orientation_w1(:) => null(), orientation_w2(:)"
@@ -1849,8 +1839,8 @@ def test_operator_deref(tmpdir, f90, f90flags):
                          distributed_memory=dist_mem).create(invoke_info)
         generated_code = str(psy.gen)
         print(generated_code)
-        if utils.TEST_COMPILE:
-            assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        if TEST_COMPILE:
+            assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
         assert generated_code.find("SUBROUTINE invoke_0_testkern_operator"
                                    "_type(mm_w0_op, chi, a, qr)") != -1
@@ -1913,9 +1903,9 @@ def test_any_space_1(tmpdir, f90, f90flags):
     psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
     generated_code = str(psy.gen)
     print(generated_code)
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
     assert ("INTEGER, pointer :: "
             "map_any_space_1_a(:,:) => null(), "
@@ -1998,9 +1988,9 @@ def test_op_any_space_different_space_2(
     generated_code = str(psy.gen)
     print(generated_code)
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
     assert "ndf_any_space_1_b = b_proxy%fs_to%get_ndf()" in generated_code
     assert "dim_any_space_1_b = b_proxy%fs_to%get_dim_space()" in \
         generated_code
@@ -2204,10 +2194,10 @@ def test_kernel_specific(tmpdir, f90, f90flags):
         "boundary_dofs)")
     assert output6 not in generated_code
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled
         # (--compile --f90="<compiler_name>" flags to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
 
 def test_multi_kernel_specific(tmpdir, f90, f90flags):
@@ -2271,10 +2261,10 @@ def test_multi_kernel_specific(tmpdir, f90, f90flags):
         "boundary_dofs_1)")
     assert output10 not in generated_code
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled
         # (--compile --f90="<compiler_name>" flags to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
 
 def test_field_bc_kernel(tmpdir, f90, f90flags):
@@ -2299,20 +2289,28 @@ def test_field_bc_kernel(tmpdir, f90, f90flags):
         "undf_any_space_1_a, map_any_space_1_a(:,cell), boundary_dofs)")
     assert str(generated_code).find(output3) != -1
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled
         # (--compile --f90="<compiler_name>" flags to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
 
-def test_bc_kernel_field_only(monkeypatch):
-    ''' Tests that the recognised boundary-condition kernel is rejected
-    if it has an operator as argument instead of a field. '''
+def test_bc_kernel_field_only(monkeypatch, annexed):
+    '''Tests that the recognised boundary-condition kernel is rejected if
+    it has an operator as argument instead of a field. Test with and
+    without annexed as different numbers of halo exchanges are
+    produced.
+
+    '''
+
+    config = Config.get()
+    dyn_config = config.api_conf("dynamo0.3")
+    monkeypatch.setattr(dyn_config, "_compute_annexed_dofs", annexed)
     _, invoke_info = parse(os.path.join(BASE_PATH,
                                         "12.2_enforce_bc_kernel.f90"),
                            api=TEST_API)
     for dist_mem in [False, True]:
-        if dist_mem:
+        if dist_mem and not annexed:
             idx = 1
         else:
             idx = 0
@@ -2358,10 +2356,10 @@ def test_operator_bc_kernel(tmpdir, f90, f90flags):
         "ndf_any_space_2_op_a, boundary_dofs)")
     assert output3 in generated_code
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled
         # (--compile --f90="<compiler_name>" flags to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
 
 def test_operator_bc_kernel_fld_err(monkeypatch):
@@ -2559,17 +2557,18 @@ def test_multikern_invoke_any_space(tmpdir, f90, f90flags):
     psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
     gen = str(psy.gen)
     print(gen)
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
     assert ("INTEGER, pointer :: map_any_space_1_f1(:,:) => null(), "
             "map_any_space_1_f2(:,:) => null(), "
             "map_any_space_2_f1(:,:) => null(), "
             "map_any_space_2_f2(:,:) => null(), map_w0(:,:) => null()" in gen)
     assert (
         "REAL(KIND=r_def), allocatable :: basis_any_space_1_f1_qr(:,:,:,:), "
-        "basis_any_space_2_f2_qr(:,:,:,:), basis_any_space_1_f2_qr(:,:,:,:), "
-        "basis_any_space_2_f1_qr(:,:,:,:), diff_basis_w0_qr(:,:,:,:)"in gen)
+        "basis_any_space_2_f2_qr(:,:,:,:), diff_basis_w0_qr(:,:,:,:), "
+        "basis_any_space_1_f2_qr(:,:,:,:), basis_any_space_2_f1_qr(:,:,:,:)"
+        in gen)
     assert "ndf_any_space_1_f1 = f1_proxy%vspace%get_ndf()" in gen
     assert "ndf_any_space_2_f2 = f2_proxy%vspace%get_ndf()" in gen
     assert "ndf_w0 = f3_proxy(1)%vspace%get_ndf()" in gen
@@ -2605,9 +2604,9 @@ def test_mkern_invoke_multiple_any_spaces(
     psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
     gen = str(psy.gen)
     print(gen)
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
     assert "ndf_any_space_1_f1 = f1_proxy%vspace%get_ndf()" in gen
     assert ("CALL qr%compute_function(BASIS, f1_proxy%vspace, "
             "dim_any_space_1_f1, ndf_any_space_1_f1, "
@@ -2667,7 +2666,7 @@ def test_loopfuse():
     generated_code = psy.gen
     # only one loop
     assert str(generated_code).count("DO cell") == 1
-# only one map for each space
+    # only one map for each space
     assert str(generated_code).count("map_w1 =>") == 1
     assert str(generated_code).count("map_w2 =>") == 1
     assert str(generated_code).count("map_w3 =>") == 1
@@ -2685,6 +2684,40 @@ def test_loopfuse():
     # both kernel calls are within the loop
     for kern_id in kern_idxs:
         assert kern_id > do_idx and kern_id < enddo_idx
+
+
+def test_kern_colourmap(monkeypatch):
+    ''' Tests for error conditions in the colourmap getter of DynKern. '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "1_single_invoke.f90"),
+                           api=TEST_API)
+    psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
+    kern = psy.invokes.invoke_list[0].schedule.children[3].children[0]
+    with pytest.raises(InternalError) as err:
+        _ = kern.colourmap
+    assert "Kernel 'testkern_code' is not inside a coloured loop" in str(err)
+    monkeypatch.setattr(kern, "is_coloured", lambda: True)
+    monkeypatch.setattr(kern, "_is_intergrid", True)
+    with pytest.raises(InternalError) as err:
+        _ = kern.colourmap
+    assert ("Colourmap information for kernel 'testkern_code' has not yet "
+            "been initialised" in str(err))
+
+
+def test_kern_ncolours(monkeypatch):
+    ''' Tests for error conditions in the ncolours getter of DynKern. '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "1_single_invoke.f90"),
+                           api=TEST_API)
+    psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
+    kern = psy.invokes.invoke_list[0].schedule.children[3].children[0]
+    with pytest.raises(InternalError) as err:
+        _ = kern.ncolours_var
+    assert "Kernel 'testkern_code' is not inside a coloured loop" in str(err)
+    monkeypatch.setattr(kern, "is_coloured", lambda: True)
+    monkeypatch.setattr(kern, "_is_intergrid", True)
+    with pytest.raises(InternalError) as err:
+        _ = kern.ncolours_var
+    assert ("Colourmap information for kernel 'testkern_code' has not yet "
+            "been initialised" in str(err))
 
 
 def test_named_psy_routine():
@@ -3820,8 +3853,9 @@ def test_no_arg_on_space(monkeypatch):
     first_kernel = first_invoke.schedule.kern_calls()[0]
     kernel_args = first_kernel.arguments
     # Test getting the argument by the meta-data name for the function space
-    arg = kernel_args.get_arg_on_space_name("w2")
+    arg, fspace = kernel_args.get_arg_on_space_name("w2")
     assert arg.name == "f2"
+    assert fspace.orig_name == "w2"
     with pytest.raises(FieldNotFoundError) as excinfo:
         _ = kernel_args.get_arg_on_space_name("not_a_space")
     assert ("there is no field or operator with function space not_a_space" in
@@ -4082,9 +4116,10 @@ def test_dynkern_arg_for_fs():
 
 def test_dist_memory_true():
     ''' Test that the distributed memory flag is on by default. '''
-    from psyclone import configuration
-    _config = configuration.Config(config_file=DEFAULT_CFG_FILE)
-    assert _config.distributed_memory
+    Config._instance = None
+    config = Config()
+    config.load(config_file=DEFAULT_CFG_FILE)
+    assert config.distributed_memory
 
 
 def test_halo_dirty_1():
@@ -4199,21 +4234,28 @@ def test_halo_exchange():
     assert output2 in generated_code
 
 
-def test_halo_exchange_inc():
+def test_halo_exchange_inc(monkeypatch, annexed):
     '''test that appropriate halo exchange calls are added if we have a
     gh_inc operation and that the loop bounds included computation in
-    the l1 halo '''
+    the l1 halo. Test when annexed is False and True as a different
+    number of halo exchanges are produced.
+
+    '''
+    config = Config.get()
+    dyn_config = config.api_conf("dynamo0.3")
+    monkeypatch.setattr(dyn_config, "_compute_annexed_dofs", annexed)
     _, invoke_info = parse(os.path.join(BASE_PATH,
                                         "4.6_multikernel_invokes.f90"),
                            api=TEST_API)
     psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
     result = str(psy.gen)
     print(result)
-    output1 = (
+    output0 = (
         "      IF (a_proxy%is_dirty(depth=1)) THEN\n"
         "        CALL a_proxy%halo_exchange(depth=1)\n"
         "      END IF \n"
-        "      !\n"
+        "      !\n")
+    output1 = (
         "      IF (b_proxy%is_dirty(depth=1)) THEN\n"
         "        CALL b_proxy%halo_exchange(depth=1)\n"
         "      END IF \n"
@@ -4242,8 +4284,12 @@ def test_halo_exchange_inc():
         "      !\n"
         "      DO cell=1,mesh%get_last_halo_cell(1)\n")
     assert output1 in result
-    assert output2 in result
-    assert result.count("halo_exchange") == 7
+    if annexed:
+        assert result.count("halo_exchange") == 5
+    else:
+        assert output0 in result
+        assert output2 in result
+        assert result.count("halo_exchange") == 7
 
 
 def test_no_halo_exchange_for_operator():
@@ -4286,38 +4332,59 @@ def test_halo_exchange_different_spaces():
     assert result.count("halo_exchange") == 9
 
 
-def test_halo_exchange_vectors_1():
-    ''' test that halo exchange produces correct code for vector
-    fields. Test a field with gh_inc '''
+def test_halo_exchange_vectors_1(monkeypatch, annexed):
+    '''Test that halo exchange produces correct code for vector fields
+    including a field with a gh_inc access. Test when annexed = False
+    and True as halo exchanges are only produced when annexed = False.
+
+    '''
+    config = Config.get()
+    dyn_config = config.api_conf("dynamo0.3")
+    monkeypatch.setattr(dyn_config, "_compute_annexed_dofs", annexed)
+
     _, invoke_info = parse(os.path.join(BASE_PATH,
                                         "14.4.1_halo_vector.f90"),
                            api=TEST_API)
     psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
     result = str(psy.gen)
     print(result)
-    assert result.count("halo_exchange(") == 3
-    for idx in range(1, 4):
-        assert "f1_proxy("+str(idx)+")%halo_exchange(depth=1)" in result
-    expected = ("      IF (f1_proxy(3)%is_dirty(depth=1)) THEN\n"
-                "        CALL f1_proxy(3)%halo_exchange(depth=1)\n"
-                "      END IF \n"
-                "      !\n"
-                "      DO cell=1,mesh%get_last_halo_cell(1)\n")
-    assert expected in result
+    if annexed:
+        assert result.count("halo_exchange(") == 0
+    else:
+        assert result.count("halo_exchange(") == 3
+        for idx in range(1, 4):
+            assert "f1_proxy("+str(idx)+")%halo_exchange(depth=1)" in result
+        expected = ("      IF (f1_proxy(3)%is_dirty(depth=1)) THEN\n"
+                    "        CALL f1_proxy(3)%halo_exchange(depth=1)\n"
+                    "      END IF \n"
+                    "      !\n"
+                    "      DO cell=1,mesh%get_last_halo_cell(1)\n")
+        assert expected in result
 
 
-def test_halo_exchange_vectors():
-    ''' test that halo exchange produces correct code for vector
-    fields. Test both a field with a stencil and a field with gh_inc '''
+def test_halo_exchange_vectors(monkeypatch, annexed):
+    '''Test that halo exchange produces correct code for vector
+    fields. Test both a field with a stencil and a field with
+    gh_inc. Test when annexed = False and True as a different number
+    of halo exchanges are produced.
+
+    '''
+    config = Config.get()
+    dyn_config = config.api_conf("dynamo0.3")
+    monkeypatch.setattr(dyn_config, "_compute_annexed_dofs", annexed)
     _, invoke_info = parse(os.path.join(BASE_PATH,
                                         "14.4_halo_vector.f90"),
                            api=TEST_API)
     psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
     result = str(psy.gen)
     print(result)
-    assert result.count("halo_exchange(") == 7
+    if annexed:
+        assert result.count("halo_exchange(") == 4
+    else:
+        assert result.count("halo_exchange(") == 7
+        for idx in range(1, 4):
+            assert "f1_proxy("+str(idx)+")%halo_exchange(depth=1)" in result
     for idx in range(1, 4):
-        assert "f1_proxy("+str(idx)+")%halo_exchange(depth=1)" in result
         assert "f2_proxy("+str(idx)+")%halo_exchange(depth=f2_extent+1)" \
             in result
     expected = ("      IF (f2_proxy(4)%is_dirty(depth=f2_extent+1)) THEN\n"
@@ -4329,8 +4396,10 @@ def test_halo_exchange_vectors():
 
 
 def test_halo_exchange_depths():
-    ''' test that halo exchange includes the correct halo
-    depth with gh_write '''
+    '''test that halo exchange includes the correct halo depth with
+    gh_write.
+
+    '''
     _, invoke_info = parse(os.path.join(BASE_PATH,
                                         "14.5_halo_depth.f90"),
                            api=TEST_API)
@@ -4353,34 +4422,46 @@ def test_halo_exchange_depths():
     assert expected in result
 
 
-def test_halo_exchange_depths_gh_inc():
-    ''' test that halo exchange includes the correct halo depth when
-    we have a gh_inc as this increases the required depth by 1 (as
-    redundant computation is performed in the l1 halo) '''
+def test_halo_exchange_depths_gh_inc(monkeypatch, annexed):
+    '''test that halo exchange includes the correct halo depth when we
+    have a gh_inc as this increases the required depth by 1 (as
+    redundant computation is performed in the l1 halo). Test when
+    annexed = False and True as a different number of halo exchanges
+    are produced.
+
+    '''
+
+    config = Config.get()
+    dyn_config = config.api_conf("dynamo0.3")
+    monkeypatch.setattr(dyn_config, "_compute_annexed_dofs", annexed)
     _, invoke_info = parse(os.path.join(BASE_PATH,
                                         "14.6_halo_depth_2.f90"),
                            api=TEST_API)
     psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
     result = str(psy.gen)
     print(result)
-    expected = ("      IF (f1_proxy%is_dirty(depth=1)) THEN\n"
-                "        CALL f1_proxy%halo_exchange(depth=1)\n"
-                "      END IF \n"
-                "      !\n"
-                "      IF (f2_proxy%is_dirty(depth=f2_extent+1)) THEN\n"
-                "        CALL f2_proxy%halo_exchange(depth=f2_extent+1)\n"
-                "      END IF \n"
-                "      !\n"
-                "      IF (f3_proxy%is_dirty(depth=f3_extent+1)) THEN\n"
-                "        CALL f3_proxy%halo_exchange(depth=f3_extent+1)\n"
-                "      END IF \n"
-                "      !\n"
-                "      IF (f4_proxy%is_dirty(depth=f4_extent+1)) THEN\n"
-                "        CALL f4_proxy%halo_exchange(depth=f4_extent+1)\n"
-                "      END IF \n"
-                "      !\n"
-                "      DO cell=1,mesh%get_last_halo_cell(1)\n")
-    assert expected in result
+    expected1 = (
+        "      IF (f1_proxy%is_dirty(depth=1)) THEN\n"
+        "        CALL f1_proxy%halo_exchange(depth=1)\n"
+        "      END IF \n"
+        "      !\n")
+    expected2 = (
+        "      IF (f2_proxy%is_dirty(depth=f2_extent+1)) THEN\n"
+        "        CALL f2_proxy%halo_exchange(depth=f2_extent+1)\n"
+        "      END IF \n"
+        "      !\n"
+        "      IF (f3_proxy%is_dirty(depth=f3_extent+1)) THEN\n"
+        "        CALL f3_proxy%halo_exchange(depth=f3_extent+1)\n"
+        "      END IF \n"
+        "      !\n"
+        "      IF (f4_proxy%is_dirty(depth=f4_extent+1)) THEN\n"
+        "        CALL f4_proxy%halo_exchange(depth=f4_extent+1)\n"
+        "      END IF \n"
+        "      !\n"
+        "      DO cell=1,mesh%get_last_halo_cell(1)\n")
+    if not annexed:
+        assert expected1 in result
+    assert expected2 in result
 
 
 def test_stencil_read_only():
@@ -4401,8 +4482,8 @@ def test_fs_discontinuous_and_inc_error():
     fparser.logging.disable(fparser.logging.CRITICAL)
     for fspace in DISCONTINUOUS_FUNCTION_SPACES:
         code = CODE.replace("arg_type(gh_field,gh_read, w3)",
-                            "arg_type(gh_field,gh_inc, "
-                            + fspace + ")", 1)
+                            "arg_type(gh_field,gh_inc, " +
+                            fspace + ")", 1)
         ast = fpapi.parse(code, ignore_comments=False)
         with pytest.raises(ParseError) as excinfo:
             _ = DynKernMetadata(ast, name="testkern_qr_type")
@@ -4417,8 +4498,8 @@ def test_fs_continuous_and_readwrite_error():
     fparser.logging.disable(fparser.logging.CRITICAL)
     for fspace in CONTINUOUS_FUNCTION_SPACES:
         code = CODE.replace("arg_type(gh_field,gh_read, w2)",
-                            "arg_type(gh_field,gh_readwrite, "
-                            + fspace + ")", 1)
+                            "arg_type(gh_field,gh_readwrite, " +
+                            fspace + ")", 1)
         ast = fpapi.parse(code, ignore_comments=False)
         with pytest.raises(ParseError) as excinfo:
             _ = DynKernMetadata(ast, name="testkern_qr_type")
@@ -4433,8 +4514,8 @@ def test_fs_anyspace_and_readwrite_error():
     fparser.logging.disable(fparser.logging.CRITICAL)
     for fspace in VALID_ANY_SPACE_NAMES:
         code = CODE.replace("arg_type(gh_field,gh_read, w2)",
-                            "arg_type(gh_field,gh_readwrite, "
-                            + fspace + ")", 1)
+                            "arg_type(gh_field,gh_readwrite, " +
+                            fspace + ")", 1)
         ast = fpapi.parse(code, ignore_comments=False)
         with pytest.raises(ParseError) as excinfo:
             _ = DynKernMetadata(ast, name="testkern_qr_type")
@@ -4599,6 +4680,24 @@ def test_upper_bound_fortran_2(monkeypatch):
         _ = my_loop._upper_bound_fortran()
     assert (
         "Unsupported upper bound name 'invalid' found" in str(excinfo.value))
+    # Pretend the loop is over colours and does not contain a kernel
+    monkeypatch.setattr(my_loop, "_upper_bound_name", value="ncolours")
+    monkeypatch.setattr(my_loop, "walk", lambda x, y: [])
+    with pytest.raises(InternalError) as excinfo:
+        _ = my_loop._upper_bound_fortran()
+    assert "Failed to find a kernel within a loop over colours" in str(excinfo)
+
+
+def test_upper_bound_inner(monkeypatch):
+    ''' Check that we get the correct Fortran generated if a loop's upper
+    bound is "inner" '''
+    _, invoke_info = parse(os.path.join(BASE_PATH, "1_single_invoke.f90"),
+                           api=TEST_API)
+    psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
+    my_loop = psy.invokes.invoke_list[0].schedule.children[3]
+    monkeypatch.setattr(my_loop, "_upper_bound_name", value="inner")
+    ubound = my_loop._upper_bound_fortran()
+    assert ubound == "mesh%get_last_inner_cell(1)"
 
 
 def test_intent_multi_kern():
@@ -6212,10 +6311,10 @@ def test_itn_space_write_w2v_w1(tmpdir, f90, f90flags):
                 "      DO cell=1,m2_proxy%vspace%get_ncell()\n")
             assert output in generated_code
 
-        if utils.TEST_COMPILE:
+        if TEST_COMPILE:
             # If compilation testing has been enabled
             # (--compile --f90="<compiler_name>" flags to py.test)
-            assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+            assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
 
 def test_itn_space_fld_and_op_writers(tmpdir, f90, f90flags):
@@ -6244,10 +6343,10 @@ def test_itn_space_fld_and_op_writers(tmpdir, f90, f90flags):
                 "      DO cell=1,op1_proxy%fs_from%get_ncell()\n")
             assert output in generated_code
 
-        if utils.TEST_COMPILE:
+        if TEST_COMPILE:
             # If compilation testing has been enabled
             # (--compile --f90="<compiler_name>" flags to py.test)
-            assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+            assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
 
 def test_itn_space_any_w3(tmpdir, f90, f90flags):
@@ -6273,10 +6372,10 @@ def test_itn_space_any_w3(tmpdir, f90, f90flags):
                 "      DO cell=1,f1_proxy%vspace%get_ncell()\n")
             assert output in generated_code
 
-        if utils.TEST_COMPILE:
+        if TEST_COMPILE:
             # If compilation testing has been enabled
             # (--compile --f90="<compiler_name>" flags to py.test)
-            assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+            assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
 
 def test_itn_space_any_w1():
@@ -6606,7 +6705,7 @@ def test_anyw2_operators():
             "      ALLOCATE (basis_any_w2_qr(dim_any_w2, ndf_any_w2, "
             "np_xy_qr, np_z_qr))\n"
             "      !\n"
-            "      ! Compute basis arrays\n"
+            "      ! Compute basis/diff-basis arrays\n"
             "      !\n"
             "      CALL qr%compute_function(BASIS, mm_w2_proxy%fs_from, "
             "dim_any_w2, ndf_any_w2, basis_any_w2_qr)")
@@ -6665,10 +6764,10 @@ def test_no_halo_for_discontinous(tmpdir, f90, f90flags):
     print(result)
     assert "halo_exchange" not in result
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled
         # (--compile --f90="<compiler_name>" flags to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
 
 def test_halo_for_discontinuous(tmpdir, f90, f90flags, monkeypatch, annexed):
@@ -6681,15 +6780,16 @@ def test_halo_for_discontinuous(tmpdir, f90, f90flags, monkeypatch, annexed):
     assume that it may have been over dofs. If so, we could have dirty
     annexed dofs so need to add a halo exchange (for the three
     continuous fields being read (f1, f2 and m1). This is the case
-    when _API_CONFIG.compute_annexed_dofs is False.
+    when api_config.compute_annexed_dofs is False.
 
     If we always iterate over annexed dofs by default, our annexed
     dofs will always be clean. Therefore we do not need to add a halo
     exchange. This is the case when
-    _API_CONFIG.compute_annexed_dofs is True.
+    api_config.compute_annexed_dofs is True.
 
     '''
-    monkeypatch.setattr(_API_CONFIG, "_compute_annexed_dofs", annexed)
+    api_config = Config.get().api_conf(TEST_API)
+    monkeypatch.setattr(api_config, "_compute_annexed_dofs", annexed)
     _, info = parse(os.path.join(BASE_PATH,
                                  "1_single_invoke_w3.f90"),
                     api=TEST_API)
@@ -6705,10 +6805,10 @@ def test_halo_for_discontinuous(tmpdir, f90, f90flags, monkeypatch, annexed):
         assert "IF (m1_proxy%is_dirty(depth=1)) THEN" in result
         assert "CALL m1_proxy%halo_exchange(depth=1)" in result
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled
         # (--compile --f90="<compiler_name>" flags to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
 
 def test_halo_for_discontinuous_2(tmpdir, f90, f90flags, monkeypatch, annexed):
@@ -6719,14 +6819,15 @@ def test_halo_for_discontinuous_2(tmpdir, f90, f90flags, monkeypatch, annexed):
 
     When the previous writer iterates over ndofs we have dirty annexed
     dofs so need to add a halo exchange. This is the case when
-    _API_CONFIG.compute_annexed_dofs is False.
+    api_config.compute_annexed_dofs is False.
 
     When the previous writer iterates over nannexed we have clean
     annexed dofs so do not need to add a halo exchange. This is the
-    case when _API_CONFIG.compute_annexed_dofs is True
+    case when api_config.compute_annexed_dofs is True
 
     '''
-    monkeypatch.setattr(_API_CONFIG, "_compute_annexed_dofs", annexed)
+    api_config = Config.get().api_conf(TEST_API)
+    monkeypatch.setattr(api_config, "_compute_annexed_dofs", annexed)
     _, info = parse(os.path.join(BASE_PATH,
                                  "14.7_halo_annexed.f90"),
                     api=TEST_API)
@@ -6742,10 +6843,10 @@ def test_halo_for_discontinuous_2(tmpdir, f90, f90flags, monkeypatch, annexed):
         assert "IF (m1_proxy%is_dirty(depth=1)) THEN" in result
         assert "CALL m1_proxy%halo_exchange(depth=1)" in result
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled
         # (--compile --f90="<compiler_name>" flags to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
 
 def test_arg_discontinuous(monkeypatch, annexed):
@@ -6759,7 +6860,8 @@ def test_arg_discontinuous(monkeypatch, annexed):
 
     # 1 discontinuous field returns true
     # Check w3, wtheta and w2v in turn
-    monkeypatch.setattr(_API_CONFIG, "_compute_annexed_dofs", annexed)
+    api_config = Config.get().api_conf(TEST_API)
+    monkeypatch.setattr(api_config, "_compute_annexed_dofs", annexed)
     if annexed:
         # no halo exchanges produced for the w3 example
         idchld_list = [0, 0, 0]
@@ -6788,7 +6890,11 @@ def test_arg_discontinuous(monkeypatch, annexed):
                     api=TEST_API)
     psy = PSyFactory(TEST_API, distributed_memory=True).create(info)
     schedule = psy.invokes.invoke_list[0].schedule
-    kernel = schedule.children[5].children[0]
+    if annexed:
+        index = 4
+    else:
+        index = 5
+    kernel = schedule.children[index].children[0]
     field = kernel.arguments.args[0]
     assert field.space == 'any_space_1'
     assert not field.discontinuous
@@ -7013,10 +7119,10 @@ def test_HaloReadAccess_discontinuous_field(tmpdir, f90, f90flags):
     assert halo_access.literal_depth == 0
     assert halo_access.stencil_type is None
 
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled
         # (--compile --f90="<compiler_name>" flags to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir, f90, f90flags)
 
 
 def test_loop_cont_read_inv_bound(monkeypatch, annexed):
@@ -7028,7 +7134,8 @@ def test_loop_cont_read_inv_bound(monkeypatch, annexed):
     halo exchanges produced.
 
     '''
-    monkeypatch.setattr(_API_CONFIG, "_compute_annexed_dofs", annexed)
+    api_config = Config.get().api_conf(TEST_API)
+    monkeypatch.setattr(api_config, "_compute_annexed_dofs", annexed)
     _, invoke_info = parse(os.path.join(BASE_PATH, "1_single_invoke_w3.f90"),
                            api=TEST_API)
     psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
@@ -7051,12 +7158,19 @@ def test_loop_cont_read_inv_bound(monkeypatch, annexed):
 
 
 def test_new_halo_exch_vect_field(monkeypatch):
-    '''if a field requires (or may require) a halo exchange before it is
-    called and it has more than one backward write dependencies then it
-    must be a vector (as a vector field requiring a halo exchange should
-    have a halo exchange for each vector). The method
+    '''If a field requires (or may require) a halo exchange before it is
+    accessed and it has more than one backward write dependency then it
+    must be a vector (as a vector field requiring a halo exchange
+    should have a halo exchange for each vector). The method
     create_halo_exchanges raises an exception if this is not the
-    case. This test checks that the exception is raised correctly.'''
+    case. This test checks that the exception is raised
+    correctly. This test relies on annexed = False as the required
+    halo exchanges are not generated when annexed = True.
+
+    '''
+    config = Config.get()
+    dyn_config = config.api_conf("dynamo0.3")
+    monkeypatch.setattr(dyn_config, "_compute_annexed_dofs", False)
     _, invoke_info = parse(os.path.join(BASE_PATH,
                                         "14.4_halo_vector.f90"),
                            api=TEST_API)
@@ -7086,7 +7200,14 @@ def test_new_halo_exch_vect_deps(monkeypatch):
     should have a halo exchange for each vector) and its vector size
     must equal the number of dependencies. The method
     create_halo_exchanges raises an exception if this is not the
-    case. This test checks that the exception is raised correctly.'''
+    case. This test checks that the exception is raised
+    correctly. This test relies on annexed = False as the required
+    halo exchanges are not generated when annexed = True.
+
+    '''
+    config = Config.get()
+    dyn_config = config.api_conf("dynamo0.3")
+    monkeypatch.setattr(dyn_config, "_compute_annexed_dofs", False)
     _, invoke_info = parse(os.path.join(BASE_PATH,
                                         "14.4_halo_vector.f90"),
                            api=TEST_API)
@@ -7114,10 +7235,17 @@ def test_new_halo_exch_vect_deps2(monkeypatch):
     '''if a field requires (or may require) a halo exchange before it is
     called and it has more than one backward write dependencies then
     it must be a vector (as a vector field requiring a halo exchange
-    should have a halo exchange for each component) and each dependency
-    should be a halo exchange. The method create_halo_exchanges raises
-    an exception if this is not the case. This test checks that the
-    exception is raised correctly.'''
+    should have a halo exchange for each component) and each
+    dependency should be a halo exchange. The method
+    create_halo_exchanges raises an exception if this is not the
+    case. This test checks that the exception is raised
+    correctly. This test relies on annexed = False as the required
+    halo exchanges are not generated when annexed = True.
+
+    '''
+    config = Config.get()
+    dyn_config = config.api_conf("dynamo0.3")
+    monkeypatch.setattr(dyn_config, "_compute_annexed_dofs", False)
     _, invoke_info = parse(os.path.join(BASE_PATH,
                                         "14.4_halo_vector.f90"),
                            api=TEST_API)
@@ -7179,18 +7307,19 @@ def test_no_halo_exchange_annex_dofs(tmpdir, f90, f90flags, monkeypatch,
     fewer halo exchange call generated.
 
     '''
-    monkeypatch.setattr(_API_CONFIG, "_compute_annexed_dofs", annexed)
+    api_config = Config.get().api_conf(TEST_API)
+    monkeypatch.setattr(api_config, "_compute_annexed_dofs", annexed)
     _, invoke_info = parse(os.path.join(BASE_PATH,
                                         "14.7.1_halo_annexed.f90"),
                            api=TEST_API)
     psy = PSyFactory(TEST_API, distributed_memory=True).create(invoke_info)
     result = str(psy.gen)
     print(result)
-    if utils.TEST_COMPILE:
+    if TEST_COMPILE:
         # If compilation testing has been enabled (--compile flag
         # to py.test)
-        assert utils.code_compiles(TEST_API, psy, tmpdir,
-                                   f90, f90flags)
+        assert code_compiles(TEST_API, psy, tmpdir,
+                             f90, f90flags)
     if annexed:
         assert "CALL f1_proxy%halo_exchange" not in result
     else:
@@ -7201,9 +7330,10 @@ def test_no_halo_exchange_annex_dofs(tmpdir, f90, f90flags, monkeypatch,
 def test_annexed_default():
     ''' Test that we do not compute annexed dofs by default (i.e. when
     using the default configuration file). '''
-    from psyclone import configuration
-    _config = configuration.Config(config_file=DEFAULT_CFG_FILE)
-    assert not _config.api(TEST_API).compute_annexed_dofs
+    Config._instance = None
+    config = Config()
+    config.load(config_file=DEFAULT_CFG_FILE)
+    assert not config.api_conf(TEST_API).compute_annexed_dofs
 
 
 def test_haloex_not_required(monkeypatch):
@@ -7219,7 +7349,8 @@ def test_haloex_not_required(monkeypatch):
     former case should currently never happen in real code as a halo
     exchange would not be added in the first place.
     '''
-    monkeypatch.setattr(_API_CONFIG, "_compute_annexed_dofs", False)
+    api_config = Config.get().api_conf(TEST_API)
+    monkeypatch.setattr(api_config, "_compute_annexed_dofs", False)
     _, info = parse(os.path.join(
         BASE_PATH, "1_single_invoke_w3.f90"),
                     api=TEST_API)
@@ -7229,7 +7360,7 @@ def test_haloex_not_required(monkeypatch):
     for index in range(3):
         haloex = schedule.children[index]
         assert haloex.required() == (True, False)
-    monkeypatch.setattr(_API_CONFIG, "_compute_annexed_dofs", True)
+    monkeypatch.setattr(api_config, "_compute_annexed_dofs", True)
     for index in range(3):
         haloex = schedule.children[index]
         assert haloex.required() == (False, True)

@@ -107,22 +107,23 @@ def print_diffs(expected, actual):
     pprint(diff_list)
 
 
-def find_fortran_file(path, root_name):
+def find_fortran_file(search_paths, root_name):
     ''' Returns the full path to a Fortran source file. Searches for
     files with suffixes defined in FORTRAN_SUFFIXES. Raises IOError
     if no matching file is found.
 
-    :param path: Location to search for Fortran file
+    :param list search_paths: List of locations to search for Fortran file
     :param root_name: Base name of the Fortran file to look for
     :type path: string
     :type root_name: string
     :return: Full path to a Fortran source file
     :rtype: string '''
-    name = os.path.join(path, root_name)
-    for suffix in FORTRAN_SUFFIXES:
-        if os.path.isfile(str(name)+"."+suffix):
-            name += "." + suffix
-            return name
+    for path in search_paths:
+        name = os.path.join(path, root_name)
+        for suffix in FORTRAN_SUFFIXES:
+            if os.path.isfile(str(name)+"."+suffix):
+                name += "." + suffix
+                return name
     raise IOError("Cannot find a Fortran file '{0}' with suffix in {1}".
                   format(name, FORTRAN_SUFFIXES))
 
@@ -180,7 +181,8 @@ def code_compiles(api, psy_ast, tmpdir, f90, f90flags):
     :type api: string
     :param psy_ast: The AST of the generated PSy layer
     :type psy_ast: Instance of :py:class:`psyGen.PSy`
-    :param tmpdir: py.test-supplied temporary directory
+    :param tmpdir: py.test-supplied temporary directory. Can contain \
+                   transformed kernel source.
     :type tmpdir: :py:class:`LocalPath`
     :param f90: The command to invoke the Fortran compiler
     :type f90: string
@@ -189,6 +191,9 @@ def code_compiles(api, psy_ast, tmpdir, f90, f90flags):
     :return: True if generated code compiles, False otherwise
     :rtype: bool
     '''
+    if not TEST_COMPILE:
+        # Compilation testing is not enabled
+        return True
 
     # API-specific set-up - where to find infrastructure source files
     # and which ones to build
@@ -230,14 +235,15 @@ def code_compiles(api, psy_ast, tmpdir, f90, f90flags):
     try:
         # First build the infrastructure modules
         for fort_file in module_files:
-            name = find_fortran_file(module_path, fort_file)
+            name = find_fortran_file([module_path], fort_file)
             # We don't have to copy the source file - just compile it in the
             # current working directory.
             success = compile_file(name, f90, f90flags)
 
-        # Next, build the kernels
+        # Next, build the kernels. We allow kernels to also be located in
+        # the temporary directory that we have been passed.
         for fort_file in kernel_modules:
-            name = find_fortran_file(kernel_path, fort_file)
+            name = find_fortran_file([kernel_path, str(tmpdir)], fort_file)
             success = compile_file(name, f90, f90flags)
 
         # Finally, we can build the psy file we have generated
@@ -255,43 +261,6 @@ def code_compiles(api, psy_ast, tmpdir, f90, f90flags):
             ofile.remove()
 
     return success
-
-
-def get_invoke(algfile, api, idx=None, name=None):
-    '''
-    Utility method to get the idx'th or named invoke from the algorithm
-    in the specified file.
-    :param str algfile: name of the Algorithm source file (Fortran)
-    :param str api: which PSyclone API this Algorithm uses
-    :param int idx: the index of the invoke from the Algorithm to return
-                    or None if name is specified
-    :param str name: the name of the required invoke or None if an index
-                     is supplied
-    :returns: (psy object, invoke object)
-    :rtype: 2-tuple containing :py:class:`psyclone.psyGen.PSy` and
-            :py:class:`psyclone.psyGen.Invoke` objects.
-    :raises RuntimeError: if neither idx or name are supplied or if
-                          both are supplied
-    :raises RuntimeError: if the supplied name does not match an invoke in
-                          the Algorithm
-    '''
-    from psyclone.parse import parse
-    from psyclone.psyGen import PSyFactory
-
-    if (idx is None and not name) or (idx is not None and name):
-        raise RuntimeError("Either the index or the name of the "
-                           "requested invoke must be specified")
-
-    _, info = parse(os.path.
-                    join(os.path.dirname(os.path.abspath(__file__)),
-                         "test_files", algfile),
-                    api=api)
-    psy = PSyFactory(api).create(info)
-    if name:
-        invoke = psy.invokes.get(name)
-    else:
-        invoke = psy.invokes.invoke_list[idx]
-    return psy, invoke
 
 
 def string_compiles(code, tmpdir, f90, f90flags):
@@ -338,3 +307,53 @@ def string_compiles(code, tmpdir, f90, f90flags):
             ofile.remove()
 
     return success
+
+
+# =============================================================================
+def get_invoke(algfile, api, idx=None, name=None):
+    '''
+    Utility method to get the idx'th or named invoke from the algorithm
+    in the specified file.
+    :param str algfile: name of the Algorithm source file (Fortran)
+    :param str api: which PSyclone API this Algorithm uses
+    :param int idx: the index of the invoke from the Algorithm to return
+                    or None if name is specified
+    :param str name: the name of the required invoke or None if an index
+                     is supplied
+    :returns: (psy object, invoke object)
+    :rtype: 2-tuple containing :py:class:`psyclone.psyGen.PSy` and
+            :py:class:`psyclone.psyGen.Invoke` objects.
+    :raises RuntimeError: if neither idx or name are supplied or if
+                          both are supplied
+    :raises RuntimeError: if the supplied name does not match an invoke in
+                          the Algorithm
+    '''
+    from psyclone.parse import parse
+    from psyclone.psyGen import PSyFactory
+
+    if (idx is None and not name) or (idx is not None and name):
+        raise RuntimeError("Either the index or the name of the "
+                           "requested invoke must be specified")
+
+    # Set up a mapping of supported APIs and corresponding directories
+    api_2_path = {"dynamo0.1": "dynamo0p1",
+                  "dynamo0.3": "dynamo0p3",
+                  "gocean1.0": "gocean1p0",
+                  "gocean0.1": "gocean0p1"}
+    try:
+        dir_name = api_2_path[api]
+    except KeyError:
+        raise RuntimeError("The API '{0}' is not supported by get_invoke. "
+                           "Supported types are {1}.".
+                           format(api, api_2_path.keys()))
+
+    _, info = parse(os.path.
+                    join(os.path.dirname(os.path.abspath(__file__)),
+                         "test_files", dir_name, algfile),
+                    api=api)
+    psy = PSyFactory(api).create(info)
+    if name:
+        invoke = psy.invokes.get(name)
+    else:
+        invoke = psy.invokes.invoke_list[idx]
+    return psy, invoke

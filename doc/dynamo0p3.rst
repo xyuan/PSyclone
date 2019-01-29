@@ -43,10 +43,10 @@ This section describes the Dynamo0.3 application programming interface
 (API). This API explains what a user needs to write in order to make
 use of the Dynamo0.3 API in PSyclone.
 
-As with all PSyclone API's the Dynamo0.3 API specifies how a user
-needs to write the algorithm layer and the kernel layer to allow
-PSyclone to generate the PSy layer. These algorithm and kernel API's
-are discussed separately in the following sections.
+As with the majority of PSyclone API's, the Dynamo0.3 API specifies
+how a user needs to write the algorithm layer and the kernel layer to
+allow PSyclone to generate the PSy layer. These algorithm and kernel
+API's are discussed separately in the following sections.
 
 The Dynamo0.3 API supports the Met Office's finite element (hereafter FEM)
 based GungHo dynamical core (see :ref:`introduction`). The Met Office
@@ -188,14 +188,14 @@ The above invoke uses two LMA operators to construct the CMA operator
 ``cma_op1``.  A second CMA operator, ``cma_op2``, is assembled from
 the same two LMA operators but also uses a field. The first of these
 CMA operators is then applied to ``field2`` and the result stored in
-``field1`` (assuming that the meta-data for ``apply_kernel`` specifies
+``field1`` (assuming that the metadata for ``apply_kernel`` specifies
 that it is the first field argument that is written to). The two CMA
 operators are then combined to produce a third, ``cma_op3``. This is
 then applied to ``field1`` and the result stored in ``field3``.
 
 Note that PSyclone identifies the type of kernels performing
 Column-Wise operations based on their arguments as described in
-meta-data (see :ref:`dynamo0.3-cma-mdata-rules` below). The names of the
+metadata (see :ref:`dynamo0.3-cma-mdata-rules` below). The names of the
 kernels in the above example are purely illustrative and are not used
 by PSyclone when determining kernel type.
 
@@ -209,7 +209,7 @@ Quadrature
 
 Kernels conforming to the Dynamo 0.3 API may require quadrature
 information (specified using e.g. ``gh_shape = gh_quadrature_XYoZ`` in
-the kernel meta-data - see Section :ref:`dynamo0.3-gh-shape`). This information
+the kernel metadata - see Section :ref:`dynamo0.3-gh-shape`). This information
 must be passed to the kernel from the Algorithm layer in the form of a
 `quadrature_type` object. This must be the last argument passed to the
 kernel, e.g.:
@@ -410,7 +410,7 @@ Rules specific to General-Purpose Kernels without CMA Operators
 
  3) A Kernel may not write to a scalar argument. (Only
     :ref:`dynamo0.3-built-ins` are permitted to do this.) Any scalar
-    aguments must therefore be declared in the meta-data as
+    aguments must therefore be declared in the metadata as
     ``GH_READ`` - see below.
 
 .. _dynamo0.3-cma-mdata-rules:
@@ -480,7 +480,7 @@ Rules for Inter-Grid Kernels
 ++++++++++++++++++++++++++++
 
 1) An inter-grid kernel is identified by the presence of a field or
-   field-vector argument with the optional `mesh_arg` meta-data element (see
+   field-vector argument with the optional `mesh_arg` metadata element (see
    :ref:`dynamo0.3-intergrid-mdata`).
 
 2) An invoke that contains one or more inter-grid kernels must not contain
@@ -490,9 +490,9 @@ Rules for Inter-Grid Kernels
 3) An inter-grid kernel is only permitted to have field or field-vector
    arguments.
 
-4) All inter-grid kernel arguments must have the `mesh_arg` meta-data entry.
+4) All inter-grid kernel arguments must have the `mesh_arg` metadata entry.
 
-5) An inter-grid kernel (and meta-data) must have at least one field on
+5) An inter-grid kernel (and metadata) must have at least one field on
    each of the fine and coarse meshes. Specifying all fields as coarse or
    fine is forbidden.
 
@@ -519,7 +519,7 @@ metadata, 1) 'meta_args', 2) 'meta_funcs', 3) 'gh_shape', 4)
     integer :: gh_shape = gh_quadrature_XYoZ
     integer :: iterates_over = cells
   contains
-    procedure :: my_kernel_code
+    procedure, nopass :: my_kernel_code
   end type
 
 These five metadata elements are discussed in order in the following
@@ -650,7 +650,7 @@ field the 3rd argument specifies the function space that the field
 lives on. More details about the supported function spaces are in
 subsection :ref:`dynamo0.3-function-space`.
 
-For example, the meta-data for a kernel that applies a Column-wise
+For example, the metadata for a kernel that applies a Column-wise
 operator to a field might look like:
 
 ::
@@ -700,7 +700,7 @@ Invoke contains say, two kernel calls that each support arguments on
 any function space, e.g. ``ANY_SPACE_1``, there is no requirement that
 these two function spaces be the same. Put another way, if an Invoke
 contained two calls of a kernel with arguments described by the above
-meta-data then the first field argument passed to each kernel call
+metadata then the first field argument passed to each kernel call
 need not be on the same space.
 
 .. note:: A ``GH_FIELD`` argument that specifies ``GH_WRITE`` or
@@ -867,7 +867,7 @@ A field entry in the meta_args array may have an optional fourth element.
 This element describes either a stencil access or, for inter-grid kernels,
 which mesh the field is on. Since an inter-grid kernel is not permitted
 to have stencil accesses, these two options are mutually exclusive.
-The meta-data for each case is described in the following sections.
+The metadata for each case is described in the following sections.
 
 Stencil Metadata
 ________________
@@ -961,7 +961,7 @@ Mesh metadata is written in the following format:
   mesh_arg=type
 
 where ``type`` may be one of ``GH_COARSE`` or ``GH_FINE``. Any kernel
-having a field argument with this meta-data is assumed to be an
+having a field argument with this metadata is assumed to be an
 inter-grid kernel and, as such, all of its other arguments (which
 must also be fields) must have it specified too. An example of the
 metadata for such a kernel is given below:
@@ -1017,7 +1017,7 @@ the rest are read-only. They may also have read-only scalar arguments, e.g.:
         arg_type(GH_COLUMNWISE_OPERATOR, GH_READ, ANY_SPACE_1, ANY_SPACE_2),  &
         arg_type(GH_REAL, GH_READ) /)
 
-.. note:: The order with which arguments are specified in meta-data for CMA kernels does not affect the process of identifying the type of kernel (whether it is assembly, matrix-matrix etc.)
+.. note:: The order with which arguments are specified in metadata for CMA kernels does not affect the process of identifying the type of kernel (whether it is assembly, matrix-matrix etc.)
 
 .. _ref-elem-properties:
 
@@ -1039,11 +1039,11 @@ OUT_FACE_NORMAL
 meta_funcs
 ##########
 
-The (optional) second component of kernel meta-data specifies
+The (optional) second component of kernel metadata specifies
 whether any quadrature or evaluator data is required for a given
 function space. (If no quadrature or evaluator data is required then
-this meta-data should be omitted.) Consider the
-following kernel meta-data:
+this metadata should be omitted.) Consider the
+following kernel metadata:
 
 ::
    
@@ -1057,13 +1057,13 @@ following kernel meta-data:
           (/ func_type(w0, gh_basis, gh_diff_basis) &
              func_type(w1, gh_basis)                &
           /)
-      integer, parameter :: gh_shape = gh_quadrature_XYoZ
-      integer, parameter :: iterates_over = cells
+      integer :: gh_shape = gh_quadrature_XYoZ
+      integer :: iterates_over = cells
     contains
-      procedure() :: code => testkern_operator_code
+      procedure, nopass :: code => testkern_operator_code
     end type testkern_operator_type
 
-The ``arg_type`` component of this meta-data describes a kernel that
+The ``arg_type`` component of this metadata describes a kernel that
 takes three arguments (an operator, a field and an integer
 scalar). Following the ``meta_args`` array we now have a
 ``meta_funcs`` array. This allows the user to specify that the kernel
@@ -1075,26 +1075,40 @@ functions for W1.
 
 .. _dynamo0.3-gh-shape:
 
-gh_shape
-########
+gh_shape and gh_evaluator_targets
+#################################
 
 If a kernel requires basis or differential-basis functions then the
-meta-data must also specify the set of points on which these functions
+metadata must also specify the set of points on which these functions
 are required. This information is provided by the ``gh_shape``
-component of the meta-data.  Currently PSyclone supports two shapes;
+component of the metadata.  Currently PSyclone supports two shapes;
 ``gh_quadrature_XYoZ`` for Gaussian quadrature points and
-``gh_evaluator`` for evaluation at nodal points. For the latter,
-the values of the basis/differential-basis functions are computed at
-the nodes defined by the function space of the quantity that the
-associated kernel is updating. All necessary data is extracted in the
-PSy layer and passed to the kernel(s) as required - nothing is
-required from the Algorithm layer. If a kernel requires quadrature on
-the other hand, the Algorithm writer must supply a ``quadrature_type``
-object as the last argument to the kernel (see Section :ref:`dynamo0.3-quadrature`).
+``gh_evaluator`` for evaluation (of the basis/differential-basis
+functions) at nodal points. For the latter, there are two options: if
+an evaluator is required for multiple function spaces then these can
+be specified using the additional ``gh_evaluator_targets`` metadata
+entry. This entry is a one-dimensional, integer array containing the
+desired function spaces. For example, to request basis/differential-basis
+functions evaluated on both W0 and W1 the metadata would be::
 
-Note that it is an error for kernel meta-data to specify a value for
-``gh_shape`` if no basis or differential-basis functions are
-required.
+    integer :: gh_shape = gh_evaluator
+    integer :: gh_evaluator_targets(2) = (/W0, W1/)
+
+The kernel must have an argument (field or operator) on each of the
+function spaces listed in ``gh_evaluator_targets``.
+The default behaviour if ``gh_evaluator_targets`` is not specified is
+to provide evaluators for each function space associated with the
+quantities that the kernel is updating. All necessary data is
+extracted in the PSy layer and passed to the kernel(s) as required -
+nothing is required from the Algorithm layer. If a kernel requires
+quadrature on the other hand, the Algorithm writer must supply a
+``quadrature_type`` object as the last argument to the kernel (see
+Section :ref:`dynamo0.3-quadrature`).
+
+Note that it is an error for kernel metadata to specify a value for
+``gh_shape`` if no basis or differential-basis functions are required.
+It is also an error to specify ``gh_evaluator_targets`` if the kernel
+does not require an evaluator (i.e. ``gh_shape != gh_evaluator``).
 
 iterates over
 #############
@@ -1111,11 +1125,9 @@ The fifth and final type of metadata is ``procedure`` metadata. This
 specifies the name of the Kernel subroutine that this metadata
 describes.
 
-For example:
+For example::
 
-::
-
-  procedure :: my_kernel_subroutine
+  procedure, nopass :: my_kernel_subroutine
 
 Subroutine
 ++++++++++
@@ -1188,27 +1200,85 @@ rules, along with PSyclone's naming conventions, are:
 
     3) For each operation on the function space (``basis``, ``diff_basis``, ``orientation``) in the order specified in the metadata
 
-        1) If it is a basis or differential basis function, include the associated argument. This is a real array of kind ``r_def`` with intent ``in``. The rank and extents of this array depend upon the ``gh_shape``:
+        1) if it is a basis or differential basis function then we must pass real
+	   arrays of kind ``r_def`` with intent ``in``:
 
-	    1) If ``gh_shape`` is ``gh_evaluator`` then basis and diff basis are ``real`` arrays of rank 3 with extent (``dimension``, ``number_of_dofs``, ``np_xyz``)
+	   1) if ``gh_shape`` is ``gh_quadrature_xyoz`` then the arrays are of
+	      rank 4 with extent (``dimension``, ``number_of_dofs``, ``np_xy``, ``np_z``). The name of the argument is ``"basis_"<field_function_space>`` or ``"diff_basis_"<field_function_space>``, as appropriate.
 
-            2) If ``gh_shape`` is ``gh_quadrature_xyoz`` then basis and diff basis are ``real`` arrays of rank 4 with extent (``dimension``, ``number_of_dofs``, ``np_xy``, ``np_z``)
-
-           where ``dimension`` is 1 or 3 and depends upon the function space and whether or not it is a basis or a differential basis function. For the former it is (w0=1, w1=3, w2=3, w3=1, wtheta=1, w2h=3, w2v=3, any_w2=3). For the latter it is (w0=3, w1=3, w2=1, w3=3, wtheta=3, w2h=1, w2v=1, any_w2=3). ``number_of_dofs`` is the number of degrees of freedom (dofs) associated with the function space and ``np_*`` are the number of points to be evaluated: i) ``*_xyz`` in all directions (3D); ii) ``*_xy`` in the horizontal plane (2D); iii) ``*_x, *_y`` in the horizontal (1D); and iv) ``*_z`` in the vertical (1D). The name of the argument is ``"basis_"<field_function_space>`` or ``"diff_basis_"<field_function_space>``, as appropriate.
+	   2) if ``gh_shape`` is ``gh_evaluator`` then we pass one array for each
+	      target function space (e.g\. as specified by ``gh_evaluator_targets``).
+	      Each of these arrays are of rank 3 with extent (``dimension``, ``number_of_dofs``,
+	      ``ndf_<target_function_space>``). The name of the argument is ``"basis_"<field_function_space>"_on_"<target_function_space>`` or ``"diff_basis_"<field_function_space>"_on_"<target_function_space>``, as appropriate.
+	      
+           where ``dimension`` is 1 or 3 and depends upon the function space and whether or not it is a basis or a differential basis function. For the former it is (w0=1, w1=3, w2=3, w3=1, wtheta=1, w2h=3, w2v=3, any_w2=3). For the latter it is (w0=3, w1=3, w2=1, w3=3, wtheta=3, w2h=1, w2v=1, any_w2=3). ``number_of_dofs`` is the number of degrees of freedom (dofs) associated with the function space and ``np_*`` are the number of points to be evaluated: i) ``*_xyz`` in all directions (3D); ii) ``*_xy`` in the horizontal plane (2D); iii) ``*_x, *_y`` in the horizontal (1D); and iv) ``*_z`` in the vertical (1D).
 
         2) If it is an orientation array, include the associated argument. The argument is an integer array with intent ``in``. There is one dimension of size the local degrees of freedom for the function space. The name of the array is ``"orientation_"<field_function_space>``.
 
-5) If Quadrature or an Evaluator is required (this is the case if any of the function spaces require basis or differential basis functions)
+5) If Quadrature is required (``gh_shape = gh_quadrature_*``)
 
-    1) include integer scalar arguments with intent ``in`` that specify the extent of the basis/diff-basis arrays:
+    1) include integer, scalar arguments with intent ``in`` that specify the extent of the basis/diff-basis arrays:
 
-       1) If ``gh_shape`` is ``gh_evaluator`` then pass ``n_xyz``
-       2) if ``gh_shape`` is ``gh_quadrature_XYoZ`` then pass ``n_xy`` and ``n_z``
+       1) if ``gh_shape`` is ``gh_quadrature_XYoZ`` then pass ``np_xy``
+	  and ``np_z``.
 
-    2) if Quadrature is required (``gh_shape`` is of type ``gh_quadrature_*``) then include weights which are real arrays of kind ``r_def``:
+    2) include weights which are real arrays of kind ``r_def``:
 
-       1) If ``gh_quadrature_XYoZ`` pass in ``w_XZ(n_xy)`` and ``w_Z(n_z)``
+       1) If ``gh_quadrature_XYoZ`` pass in ``w_XZ(np_xy)`` and ``w_Z(np_z)``
 
+Examples
+^^^^^^^^
+
+.. highlight:: fortran
+	  
+For instance, if a kernel has only one written argument and requires an
+evaluator then its metadata might be::
+  
+  type, extends(kernel_type) :: testkern_operator_type
+     type(arg_type), dimension(2) :: meta_args =      &
+          (/ arg_type(gh_operator, gh_write, w0, w1), &
+             arg_type(gh_field*3, gh_read, w0) /)
+     type(func_type) :: meta_funcs(1) =               &
+          (/ func_type(w0, gh_basis) /)
+     integer :: iterates_over = cells
+     integer :: gh_shape = gh_evaluator
+   contains
+     procedure, nopass :: code => testkern_operator_code
+  end type testkern_operator_type
+
+then we only pass the basis functions evaluated on W0 (the space of
+the written kernel argument). The subroutine arguments will therefore
+be::
+
+  subroutine testkern_operator_code(cell, nlayers, ncell_3d,        &
+       local_stencil, xdata, ydata, zdata, ndf_w0, undf_w0, map_w0, &
+       basis_w0_on_w0, ndf_w1)    
+
+where ``local_stencil`` is the operator, ``xdata``, ``ydata``
+etc\. are the three components of the field vector and ``map_w0`` is
+the dof map for the W0 function space.
+
+If instead, ``gh_evaluator_targets`` is specified in the metadata::
+
+  type, extends(kernel_type) :: testkern_operator_type
+     type(arg_type), dimension(2) :: meta_args =      &
+          (/ arg_type(gh_operator, gh_write, w0, w1), &
+             arg_type(gh_field*3, gh_read, w0) /)
+     type(func_type) :: meta_funcs(1) =               &
+          (/ func_type(w0, gh_basis) /)
+     integer :: iterates_over = cells
+     integer :: gh_shape = gh_evaluator
+     integer :: gh_evaluator_targets(2) = (/W0, W1/)
+   contains
+     procedure, nopass :: code => testkern_operator_code
+  end type testkern_operator_type
+
+then we will need to pass two sets of basis functions (evaluated at W0
+and at W1)::
+  
+  subroutine testkern_operator_code(cell, nlayers, ncell_3d,        &
+       local_stencil, xdata, ydata, zdata, ndf_w0, undf_w0, map_w0, &
+       basis_w0_on_w0, basis_w0_on_w1, ndf_w1)
 
 Rules for CMA Kernels
 #####################
@@ -1232,7 +1302,7 @@ as the number of dofs for each of the dofmaps. The full set of rules is:
        an integer with intent ``in``.
     4) Include the total number of cells, ``ncell_3d``, which is an integer
        with intent ``in``.
-    5) For each argument in the ``meta_args`` meta-data array:
+    5) For each argument in the ``meta_args`` metadata array:
        
        1) If it is a LMA operator, include a real, 3-dimensional
           array of type ``r_def``. The first two dimensions are the local
@@ -1307,7 +1377,7 @@ The full set of rules is then:
        intent ``in``.
     2) Include the number of cells in the 2D mesh, ``ncell_2d``, which is
        an integer with intent ``in``.
-    3) For each argument in the ``meta_args`` meta-data array:
+    3) For each argument in the ``meta_args`` metadata array:
 
        1) If it is a field, include the field array. This is a real
           array of kind ``r_def`` and is of rank 1.  The field array name
@@ -1322,7 +1392,7 @@ The full set of rules is then:
           parameters (see Rule 5 of CMA Assembly kernels).
 
     4) For each of the unique function spaces encountered in the
-       meta-data arguments (the ``to`` function space of an operator
+       metadata arguments (the ``to`` function space of an operator
        is considered to be before the ``from`` function space of the
        same operator as it appears first in lexicographic order):
 
@@ -1352,7 +1422,7 @@ and ``ncell_3d`` scalar arguments. The full set of rules are then:
        intent ``in``.
     2) Include the number of cells in the 2D mesh, ``ncell_2d``, which is
        an integer with intent ``in``.
-    3) For each CMA operator or scalar argument specifed in meta-data:
+    3) For each CMA operator or scalar argument specifed in metadata:
 
        1) If it is a CMA operator, include it and its associated
 	  parameters (see Rule 5 of CMA Assembly kernels).
@@ -1383,14 +1453,14 @@ arguments to inter-grid kernels are as follows:
        This is an integer and has intent ``in``.
     4) Include ``ncell_f``, the number of cells (columns) in the fine mesh.
        This is an integer and has intent ``in``.
-    5) For each argument in the ``meta_args`` meta-data array (which must be
+    5) For each argument in the ``meta_args`` metadata array (which must be
        a field or field-vector):
 
        1) Pass in field data as done for a regular kernel.
 
     6) For each unique function space (of which there will currently be two)
        in the order in which they are encountered in the ``meta_args``
-       meta-data array, include dofmap information:
+       metadata array, include dofmap information:
 
        If the dofmap is associated with an argument on the fine mesh:
 
@@ -1983,12 +2053,12 @@ The ``GH_READWRITE`` access is used for updating discontinuous operators
 Conventions
 -----------
 
-There is a convention in the Dynamo0.3 API kernel code that if the
-name of the operation being performed is ``<name>`` then a kernel file
-is ``<name>_mod.[fF90]``, the name of the module inside the kernel
-file is ``<name>_mod``, the name of the kernel metadata in the module
-is ``<name>_type`` and the name of the kernel subroutine in the module
-is ``<name>_code``. PSyclone does not need this convention to be followed apart from the stub generator (see the :ref:`stub-generation` Section ) where the name of the metadata to be parsed is determined from the module name.
+The naming of Dynamo0.3 API kernels and associated entities (types,
+subroutines and modules) follows the PSyclone Fortran naming
+conventions (see :ref:`fortran_naming`). However, PSyclone does not need
+this convention to be followed apart from the stub generator (see the
+:ref:`stub-generation` Section ) where the name of the metadata to be
+parsed is determined from the module name.
 
 The contents of the metadata is also usually declared private but this
 does not affect PSyclone.
@@ -2033,13 +2103,14 @@ Transformations
 ---------------
 
 This section describes the dynamo-api-specific transformations. In all
-cases, excepting **Dynamo0p3RedundantComputationTrans**, these
-transformations are specialisations of generic transformations
-described in the :ref:`transformations` section. The difference
-between these transformations and the generic ones is that these
-perform dynamo-api-specific checks to make sure the transformations
-are valid. In practice these transformations perform the required
-checks then call the generic ones internally.
+cases, excepting **Dynamo0p3RedundantComputationTrans** and
+**Dynamo0p3AsyncHaloExchangeTrans**, these transformations are
+specialisations of generic transformations described in the
+:ref:`transformations` section. The difference between these
+transformations and the generic ones is that these perform
+dynamo-api-specific checks to make sure the transformations are
+valid. In practice these transformations perform the required checks
+then call the generic ones internally.
 
 The use of the dynamo-api-specific transformations is exactly the same
 as the equivalent generic ones in all cases excepting
@@ -2055,16 +2126,23 @@ the spaces are the same. This option should therefore be used with
 caution. Note, if PSyclone knows the spaces are different this option
 has no effect and the transformation will always raise an exception.
 
-The **Dynamo0p3RedundantComputationTrans** transformation is only valid
-for the "Dynamo0p3" API. This is because this API is currently the
-only one that supports distributed memory.
-An example of redundant computation can be found in ``examples/dynamo/eg8``.
+The **Dynamo0p3RedundantComputationTrans** and
+**Dynamo0p3AsyncHaloExchange** transformations are only valid for the
+"Dynamo0p3" API. This is because this API is currently the only one
+that supports distributed memory.  An example of redundant computation
+can be found in ``examples/dynamo/eg8`` and an example of asynchronous
+halo exchanges can be found in ``examples/dynamo/eg11``.
 
 The Dynamo-specific transformations currently available are given
 below. If the name of a transformation includes "Dynamo0p3" it means
 that the transformation is only valid for this particular API. If the
 name of the transformation includes "Dynamo" then it should work with
 all versions of the Dynamo API.
+
+.. note:: Only the loop-colouring and OpenMP transformations are currently
+	  supported for loops that contain inter-grid kernels. Attempting
+	  to apply other transformation types will result in PSyclone raising
+	  an error.
 
 .. autoclass:: psyclone.transformations.DynamoLoopFuseTrans
     :members:
@@ -2074,11 +2152,15 @@ all versions of the Dynamo API.
     :members:
     :noindex:
 
-.. autoclass:: psyclone.transformations.Dynamo0p3OMPLoopTrans
+.. autoclass:: psyclone.transformations.Dynamo0p3AsyncHaloExchangeTrans
     :members:
     :noindex:
 
 .. autoclass:: psyclone.transformations.Dynamo0p3ColourTrans
+    :members:
+    :noindex:
+
+.. autoclass:: psyclone.transformations.Dynamo0p3OMPLoopTrans
     :members:
     :noindex:
 
