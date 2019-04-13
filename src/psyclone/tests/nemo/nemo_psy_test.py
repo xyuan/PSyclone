@@ -347,3 +347,16 @@ def test_invoke_function():
     assert len(psy.invokes.invoke_list) == 1
     invoke = psy.invokes.invoke_list[0]
     assert invoke.name == "afunction"
+
+
+def test_select(parser):
+    ''' Check we can represent a basic select statement. '''
+    from psyclone.psyGen import CodeBlock
+    _, invoke_info = parse(os.path.join(BASE_PATH, "case_statement.f90"),
+                           api=API, line_length=False)
+    psy = PSyFactory(API, distributed_memory=False).create(invoke_info)
+    sched = psy.invokes.invoke_list[0].schedule
+    sched.view()
+    assert not isinstance(sched.children[1], CodeBlock)
+
+
