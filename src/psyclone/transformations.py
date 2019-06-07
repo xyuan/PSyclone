@@ -2922,25 +2922,11 @@ class ACCRoutineTrans(Transformation):
         # Check that we can safely apply this transformation
         self.validate(kern)
 
-        # Get the fparser2 AST of the kernel
-        ast = kern.ast
         # Keep a record of this transformation
         keep = Memento(kern, self)
-        # Find the kernel subroutine
-        kern_sub = None
-        subroutines = walk_ast(ast.content, [Subroutine_Subprogram])
-        for sub in subroutines:
-            for child in sub.content:
-                if isinstance(child, Subroutine_Stmt) and \
-                   str(child.items[1]) == kern.name:
-                    kern_sub = sub
-                    break
-            if kern_sub:
-                break
-        if not kern_sub:
-            raise TransformationError(
-                "Failed to find subroutine source for kernel {0}".
-                format(kern.name))
+
+        kern_sub = ACCRoutineTrans._find_kernel_parse_tree(kern)
+
         # Find the last declaration statement in the subroutine
         spec = walk_ast(kern_sub.content, [Specification_Part])[0]
         posn = -1
@@ -2971,16 +2957,42 @@ class ACCRoutineTrans(Transformation):
 
         '''
         from psyclone.psyGen import BuiltIn
+        from psyclone.nemo import NemoInvoke
         if isinstance(kern, BuiltIn):
             raise TransformationError(
                 "Applying ACCRoutineTrans to a built-in kernel is not yet "
                 "supported and kernel '{0}' is of type '{1}'".
                 format(kern.name, type(kern)))
-
-        if kern.module_inline:
+        if not isinstance(kern, NemoInvoke) and kern.module_inline:
             raise TransformationError("Cannot transform kernel {0} because "
                                       "it will be module-inlined.".
                                       format(kern.name))
+
+    @staticmethod
+    def _find_kernel_parse_tree(kern):
+        '''
+        '''
+        from psyclone.nemo import NemoInvoke
+        # Get the fparser2 Parse Tree of the kernel
+        if isinstance(kern, NemoInvoke):
+            return kern._ast
+
+        ast = kern.ast
+        # Find the kernel subroutine
+        kern_sub = None
+        subroutines = walk_ast(ast.content, [Subroutine_Subprogram])
+        for sub in subroutines:
+            for child in sub.content:
+                if isinstance(child, Subroutine_Stmt) and \
+                   str(child.items[1]) == kern.name:
+                    kern_sub = sub
+                    break
+            if kern_sub:
+                break
+        if not kern_sub:
+            raise TransformationError(
+                "Failed to find subroutine source for kernel {0}".
+                format(kern.name))
 
 
 class ACCKernelsTrans(RegionTrans):

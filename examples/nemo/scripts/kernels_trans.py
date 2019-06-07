@@ -73,7 +73,7 @@ from psyclone.psyGen import TransInfo
 # Get the PSyclone transformations we will use
 ACC_KERN_TRANS = TransInfo().get_trans_name('ACCKernelsTrans')
 ACC_DATA_TRANS = TransInfo().get_trans_name('ACCDataTrans')
-
+ACC_ROUTINE_TRANS = TransInfo().get_trans_name('ACCRoutineTrans')
 
 def valid_kernel(node):
     '''
@@ -190,6 +190,7 @@ def trans(psy):
     :param psy: The PSy layer object to apply transformations to.
     :type psy: :py:class:`psyclone.psyGen.PSy`
     '''
+    from fparser.two import Fortran2003
     from psyclone.psyGen import ACCDirective
 
     print("Invokes found:\n{0}\n".format(
@@ -207,19 +208,14 @@ def trans(psy):
         add_kernels(sched.children)
         sched.view()
 
-        if False:
-            directives = sched.walk(sched.children, ACCDirective)
-            if not directives:
-                # We only need a data region if we've added any directives
-                continue
+        directives = sched.walk(sched.children, ACCDirective)
+        if directives or not isinstance(invoke._ast,
+                                        Fortran2003.Function_Subprogram):
+            # We only need an ACC ROUTINE if we've not added any other
+            # directives *and* this is not a Function
+            continue
+        ACC_ROUTINE_TRANS.apply(invoke)
 
-            # Since we've already taken care to only include recognised code within
-            # 'kernels' directives, we simply put each of those directives inside
-            # a data region. In reality we would want to try and make the data
-            # regions bigger but this is only an example.
-            for directive in directives:
-                sched, _ = ACC_DATA_TRANS.apply([directive])
-
-            sched.view()
+        sched.view()
 
         invoke.schedule = sched
