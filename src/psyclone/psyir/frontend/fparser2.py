@@ -1047,7 +1047,7 @@ class Fparser2Reader(object):
             case = clause.items[0]
 
             ifblock = IfBlock(parent=currentparent,
-                              annotation=['was_case'])
+                              annotations=['was_case'])
             if idx == 0:
                 # If this is the first IfBlock then have it point to
                 # the original SELECT CASE in the parse tree
