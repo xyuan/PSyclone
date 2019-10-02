@@ -197,7 +197,8 @@ def test_cw_array():
     result = cwriter(assignment)
     # Results is reversed and flatten (row-major 1D)
     # dimensions are called <name>LEN<dimension> by convention
-    assert result == "a[(-2) * aLEN2 * aLEN1 + 1 * aLEN1 + b] = 0.0;\n"
+    assert result == "a[((-2)-1) * aLEN2 * aLEN1 + (1-1) * aLEN1 + (b-1)]"\
+                     " = 0.0;\n"
 
 
 def test_cw_ifblock():
@@ -310,7 +311,7 @@ def test_cw_unaryoperator():
         assert cwriter(unary_operation) in expected
 
     # Test that an unsupported operator raises an error
-    # pylint: disable=abstract-method, too-few-public-methods
+    # pylint: disable=too-few-public-methods
     class Unsupported():
         '''Dummy class'''
     # pylint: enable=abstract-method, too-few-public-methods
