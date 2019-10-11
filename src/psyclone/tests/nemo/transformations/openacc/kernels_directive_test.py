@@ -196,6 +196,40 @@ def test_kernels_within_if(parser):
             "    !$ACC END KERNELS\n"
             "  END IF\n" in new_code)
 
+def test_kernels_within_elseif(parser):
+    ''' Check that we can put a kernels region within an else-if block. '''
+    reader = FortranStringReader("program if_then\n"
+                                 "if(do_this)then\n"
+                                 "  do ji=1,jpi\n"
+                                 "    fld(ji) = 1.0\n"
+                                 "  end do\n"
+                                 "else if (do_that)then\n"
+                                 "  fld2d(:,:) = 1.0\n"
+                                 "else\n"
+                                 "  fld2d(:,:) = 0.0\n"
+                                 "end if\n"
+                                 "end program if_then\n")
+    code = parser(reader)
+    psy = PSyFactory(API, distributed_memory=False).create(code)
+    schedule = psy.invokes.invoke_list[0].schedule
+    acc_trans = TransInfo().get_trans_name('ACCKernelsTrans')
+
+    with pytest.raises(TransformationError) as err:
+        acc_trans.apply(schedule.children[0].else_body,
+                        default_present=True)
+    assert ("transformation to an IfBlock corresponding to an else-if"
+            in str(err.value))
+
+    schedule, _ = acc_trans.apply(schedule.children[0].else_body[0].if_body,
+                                  default_present=True)
+    new_code = str(psy.gen)
+    assert ("    END DO\n"
+            "  ELSE IF (do_that) THEN\n"
+            "    !$ACC KERNELS DEFAULT(PRESENT)\n"
+            "    fld2d(:, :) = 1.0\n"
+            "    !$ACC END KERNELS\n"
+            "  ELSE\n" in new_code)
+
 
 def test_no_code_block_kernels(parser):
     ''' Check that we reject attempts to enclose CodeBlocks within a

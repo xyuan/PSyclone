@@ -916,9 +916,9 @@ class Fparser2Reader(object):
                                          annotation='was_elseif')
                     elsebody.addchild(newifblock)
 
-                    # Keep pointer to fpaser2 AST
-                    elsebody.ast = node.content[start_idx]
-                    newifblock.ast = node.content[start_idx]
+                    # Keep pointer to fpaser2 AST for body of elseif
+                    elsebody.ast = node.content[start_idx+1]
+                    newifblock.ast = node.content[start_idx+1]
 
                 # Create condition as first child
                 self.process_nodes(parent=newifblock,

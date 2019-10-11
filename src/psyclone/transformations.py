@@ -130,9 +130,12 @@ class RegionTrans(Transformation):
         :raises TransformationError: if the nodes are in a NEMO Schedule and \
                                      the transformation acts on the child of \
                                      a single-line if statment.
+        :raises TransformationError: if the nodes are in a NEMO Schedule and \
+                                     the transformation acts on an If that was\
+                                     originally an else-if.
 
         '''
-        from psyclone.psyGen import IfBlock, Literal, Reference
+        from psyclone.psyGen import IfBlock
         from psyclone.nemo import NemoInvokeSchedule
         node_parent = node_list[0].parent
         prev_position = -1
@@ -198,6 +201,14 @@ class RegionTrans(Transformation):
             raise TransformationError(
                 "Cannot apply a transformation to the child of a single-line "
                 "if statement in the NEMO API.")
+
+        if isinstance(node, IfBlock) and "was_elseif" in node.annotations:
+            # Again, this limitation is because we are currently tied to
+            # using the fparser2 parse tree.
+            # TODO #435.
+            raise TransformationError(
+                "Cannot apply a transformation to an IfBlock corresponding "
+                "to an else-if - target its Schedule instead.")
 
 
 class KernelTrans(Transformation):
