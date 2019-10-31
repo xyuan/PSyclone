@@ -1252,7 +1252,23 @@ class Node(object):
         '''If this Node can be moved to the new_node
         (where position determines whether it is before of after the
         new_node) without breaking any data dependencies then return True,
-        otherwise return False. '''
+        otherwise return False.
+
+        :param new_node: Node to which this node should be moved.
+        :type new_node: :py:class:`psyclone.psyGen.Node`
+        :param str position: either 'before' or 'after'.
+
+        :raises GenerationError: if new_node is not an\
+                instance of :py:class:`psyclone.psyGen.Node`.
+        :raises GenerationError: if position is not 'before' or 'after'.
+        :raises GenerationError: if self and new_node do not have the same\
+                parent.
+        :raises GenerationError: self and new_node are the same Node.
+
+        :returns: whether or not the specified location is valid for this node.
+        :rtype: bool
+
+        '''
         # First perform correctness checks
         # 1: check new_node is a Node
         if not isinstance(new_node, Node):
@@ -1348,14 +1364,6 @@ class Node(object):
         result = ""
         for entity in self._children:
             result += str(entity)+"\n"
-        return result
-
-    def list_to_string(self, my_list):
-        result = ""
-        for idx, value in enumerate(my_list):
-            result += str(value)
-            if idx < (len(my_list) - 1):
-                result += ","
         return result
 
     def addchild(self, child, index=None):
@@ -2130,7 +2138,7 @@ class ACCEnterDataDirective(ACCDirective):
                 if var not in var_list:
                     var_list.append(var)
         # 3. Convert this list of objects into a comma-delimited string
-        var_str = self.list_to_string(var_list)
+        var_str = ",".join(var_list)
         # 4. Add the enter data directive.
         if var_str:
             copy_in_str = "copyin("+var_str+")"
@@ -2465,7 +2473,7 @@ class OMPParallelDirective(OMPDirective):
             # declare the variable
             parent.add(DeclGen(parent, datatype="integer",
                                entity_decls=[thread_idx]))
-        private_str = self.list_to_string(private_list)
+        private_str = ",".join(private_list)
 
         # We're not doing nested parallelism so make sure that this
         # omp parallel region is not already within some parallel region
@@ -2523,6 +2531,38 @@ class OMPParallelDirective(OMPDirective):
             parent.add(CommentGen(parent, ""))
             for call in reprod_red_call_list:
                 call.reduction_sum_loop(parent)
+
+    def begin_string(self):
+        '''Returns the beginning statement of this directive, i.e.
+        "omp parallel". The visitor is responsible for adding the
+        correct directive beginning (e.g. "!$").
+
+        :returns: the opening statement of this directive.
+        :rtype: str
+
+        '''
+        result = "omp parallel"
+        # TODO #514: not yet working with NEMO, so commented out for now
+        # if not self._reprod:
+        #     result += self._reduction_string()
+        private_list = self._get_private_list()
+        private_str = ",".join(private_list)
+
+        if private_str:
+            result = "{0} private({1})".format(result, private_str)
+        return result
+
+    def end_string(self):
+        '''Returns the end (or closing) statement of this directive, i.e.
+        "omp end parallel". The visitor is responsible for adding the
+        correct directive beginning (e.g. "!$").
+
+        :returns: the end statement for this directive.
+        :rtype: str
+
+        '''
+        # pylint: disable=no-self-use
+        return "omp end parallel"
 
     def _get_private_list(self):
         '''
@@ -2751,8 +2791,8 @@ class OMPDoDirective(OMPDirective):
         :type parent: sub-class of :py:class:`psyclone.f2pygen.BaseGen`
         :raises GenerationError: if this "!$omp do" is not enclosed within \
                                  an OMP Parallel region.
-        '''
 
+        '''
         # It is only at the point of code generation that we can check for
         # correctness (given that we don't mandate the order that a user
         # can apply transformations to the code). As an orphaned loop
@@ -2782,6 +2822,28 @@ class OMPDoDirective(OMPDirective):
         position = parent.previous_loop()
         parent.add(DirectiveGen(parent, "omp", "end", "do", ""),
                    position=["after", position])
+
+    def begin_string(self):
+        '''Returns the beginning statement of this directive, i.e.
+        "omp do ...". The visitor is responsible for adding the
+        correct directive beginning (e.g. "!$").
+
+        :returns: the beginning statement for this directive.
+        :rtype: str
+
+        '''
+        return "omp do schedule({0})".format(self._omp_schedule)
+
+    def end_string(self):
+        '''Returns the end (or closing) statement of this directive, i.e.
+        "omp end do". The visitor is responsible for adding the
+        correct directive beginning (e.g. "!$").
+
+        :returns: the end statement for this directive.
+        :rtype: str
+
+        '''
+        return "omp end do"
 
     def update(self):
         '''
@@ -2892,7 +2954,7 @@ class OMPParallelDoDirective(OMPParallelDirective, OMPDoDirective):
 
         calls = self.reductions()
         zero_reduction_variables(calls, parent)
-        private_str = self.list_to_string(self._get_private_list())
+        private_str = ",".join(self._get_private_list())
         parent.add(DirectiveGen(parent, "omp", "begin", "parallel do",
                                 "default(shared), private({0}), "
                                 "schedule({1})".
@@ -4285,22 +4347,6 @@ class CodedKern(Kern):
                 # whilst old style (direct fp2) transformations still
                 # exist - #490.
 
-                # First check that the kernel module name and
-                # subroutine name conform to the <name>_mod and
-                # <name>_code convention as this is currently assumed
-                # when recreating the kernel module name from the
-                # PSyIR in the Fortran back end. This limitation is
-                # the subject of #520.
-
-                if self.name.lower().rstrip("_code") != \
-                   self.module_name.lower().rstrip("_mod") or \
-                   not self.name.lower().endswith("_code") or \
-                   not self.module_name.lower().endswith("_mod"):
-                    raise NotImplementedError(
-                        "PSyclone back-end code generation relies on kernel "
-                        "modules conforming to the <name>_mod and <name>_code "
-                        "convention. However, found '{0}', '{1}'."
-                        "".format(self.module_name, self.name))
                 # Rename PSyIR module and kernel names.
                 self._rename_psyir(new_suffix)
             else:
@@ -4321,7 +4367,7 @@ class CodedKern(Kern):
         if self.root.opencl:
             from psyclone.psyir.backend.opencl import OpenCLWriter
             ocl_writer = OpenCLWriter(
-                    kernels_local_size=self._opencl_options['local_size'])
+                kernels_local_size=self._opencl_options['local_size'])
             new_kern_code = ocl_writer(self.get_kernel_schedule())
         elif self._kern_schedule:
             # A PSyIR kernel schedule has been created. This means
@@ -4334,7 +4380,10 @@ class CodedKern(Kern):
             # exist.
             from psyclone.psyir.backend.fortran import FortranWriter
             fortran_writer = FortranWriter()
-            new_kern_code = fortran_writer(self.get_kernel_schedule())
+            # Start from the root of the schedule as we want to output
+            # any module information surrounding the kernel subroutine
+            # as well as the subroutine itself.
+            new_kern_code = fortran_writer(self.get_kernel_schedule().root)
             fll = FortLineLength()
             new_kern_code = fll.process(new_kern_code)
         else:
@@ -4375,12 +4424,7 @@ class CodedKern(Kern):
     def _rename_psyir(self, suffix):
         '''Rename the PSyIR module and kernel names by adding the supplied
         suffix to the names. This change affects the KernCall and
-        KernelSchedule nodes. Currently it is only possible to set the
-        kernel subroutine name in a KernCall node. The kernel module
-        name is then inferred from the subroutine name by assuming
-        there is a naming convention (<name>_code and <name>_mod),
-        which is not always the case. This limitation is the subject
-        of #520.
+        KernelSchedule nodes.
 
         :param str suffix: the string to insert into the quantity names.
 
@@ -4398,13 +4442,9 @@ class CodedKern(Kern):
         self.name = new_kern_name[:]
         self._module_name = new_mod_name[:]
 
-        # Update the PSyIR with the new names. Note there is currently
-        # an assumption in the PSyIR that the module name has the same
-        # root name as the subroutine name. These names are used when
-        # generating the modified kernel code. This limitation is the
-        # subject of #520.
         kern_schedule = self.get_kernel_schedule()
         kern_schedule.name = new_kern_name[:]
+        kern_schedule.root.name = new_mod_name[:]
 
     def _rename_ast(self, suffix):
         '''
@@ -5222,32 +5262,68 @@ class Transformation(object):
         return
 
     @abc.abstractmethod
-    def apply(self, *args):
+    def apply(self, node, options=None):
         '''Abstract method that applies the transformation. This function
-        must be implemented by each transform.
+        must be implemented by each transform. As a minimum each apply
+        function must take a node to which the transform is applied, and
+        a dictionary of additional options, which will also be passed on
+        to the validate functions. This dictionary is used to provide
+        optional parameters, and also to modify the behaviour of
+        validation of transformations: for example, if the user knows that
+        a transformation can correctly be applied in a specific case, but
+        the more generic code validation would not allow this. Validation
+        functions should check for a key in the options dictionary to
+        disable certain tests. Those keys will be documented in each
+        apply() and validate() function.
 
-        :param args: Arguments for the transformation - specific to\
-                    the actual transform used.
-        :type args: Type depends on actual transformation.
-        :returns: A tuple of the new schedule, and a momento.
-        :rtype: Tuple.
+        Note that some apply() functions might take a slightly different
+        set of parameters.
+
+        :param node: The node (or list of nodes) for the transformation \
+                - specific to the actual transform used.
+        :type node: depends on actual transformation
+        :param options: a dictionary with options for transformations.
+        :type options: dictionary of string:values or None
+
+        :returns: 2-tuple of new schedule and memento of transform.
+        :rtype: (:py:class:`psyclone.dynamo0p3.DynInvokeSchedule`, \
+                 :py:class:`psyclone.undoredo.Memento`)
+
         '''
         # pylint: disable=no-self-use
         schedule = None
         momento = None
         return schedule, momento
 
-    def _validate(self, *args):
+    def validate(self, node, options=None):
         '''Method that validates that the input data is correct.
-        It will raise exceptions if the input data is incorrect. This function
-        needs to be implemented by each transformation.
+        It will raise exceptions if the input data is incorrect. This
+        function needs to be implemented by each transformation.
 
-        :param args: Arguments for the applying the transformation - specific\
-                    to the actual transform used.
-        :type args: Type depends on actual transformation.
+        The validate function can be called by the user independent of
+        the apply() function, but it will automatically be executed as
+        part of an apply() call.
+
+        As minimum each validate function must take a node to which the
+        transform is applied and a dictionary of additional options.
+        This dictionary is used to provide optional parameters and also
+        to modify the behaviour of validation: for example, if the user
+        knows that a transformation can correctly be applied in a specific
+        case but the more generic code validation would not allow this.
+        Validation functions should check for particular keys in the options
+        dict in order to disable certain tests. Those keys will be documented
+        in each apply() and validate() function as 'options["option-name"]'.
+
+        Note that some validate functions might take a slightly different
+        set of parameters.
+
+        :param node: The node (or list of nodes) for the transformation \
+                - specific to the actual transform used.
+        :type node: depends on actual transformation
+        :param options: a dictionary with options for transformations.
+        :type options: dictionary of string:values or None
         '''
         # pylint: disable=no-self-use, unused-argument
-        return
 
 
 class DummyTransformation(Transformation):
@@ -5255,7 +5331,7 @@ class DummyTransformation(Transformation):
     def name(self):
         return
 
-    def apply(self):
+    def apply(self, node, options=None):
         return None, None
 
 

@@ -463,7 +463,6 @@ def test_invokes_can_always_be_printed():
     # Name is converted to lower case if set in constructor of InvokeCall:
     assert inv.__str__() == "invoke_testname()"
 
-    # pylint: disable=protected-access
     invoke_call._name = None
     inv = Invoke(invoke_call, 12, DynInvokeSchedule)
     assert inv.__str__() == "invoke_12()"
@@ -714,13 +713,13 @@ def test_call_abstract_methods():
     the expected exceptions '''
     my_arguments = Arguments(None)
 
-    class KernType(object):  # pylint: disable=too-few-public-methods
+    class KernType(object):
         ''' temporary dummy class '''
         def __init__(self):
             self.iterates_over = "stuff"
     my_ktype = KernType()
 
-    class DummyClass(object):  # pylint: disable=too-few-public-methods
+    class DummyClass(object):
         ''' temporary dummy class '''
         def __init__(self, ktype):
             self.module_name = "dummy_module"
@@ -772,7 +771,6 @@ def test_incremented_arg():
     metadata = DynKernMetadata(ast)
     for descriptor in metadata.arg_descriptors:
         if descriptor.access == AccessType.INC:
-            # pylint: disable=protected-access
             descriptor._access = AccessType.READ
     my_kern = DynKern()
     my_kern.load_meta(metadata)
@@ -878,7 +876,7 @@ def test_acc_dir_view(capsys):
 
     # Loop directive with collapse
     new_sched, _ = acclt.apply(new_sched.children[1].children[0].children[0],
-                               collapse=2)
+                               {"collapse": 2})
     new_sched.children[1].children[0].children[0].view()
     out, _ = capsys.readouterr()
     assert out.startswith(
@@ -987,7 +985,6 @@ def test_reduction_var_error():
         schedule = psy.invokes.invoke_list[0].schedule
         call = schedule.kernels()[0]
         # args[1] is of type gh_field
-        # pylint: disable=protected-access
         call._reduction_arg = call.arguments.args[1]
         with pytest.raises(GenerationError) as err:
             call.zero_reduction_variable(None)
@@ -1006,7 +1003,6 @@ def test_reduction_sum_error():
         schedule = psy.invokes.invoke_list[0].schedule
         call = schedule.kernels()[0]
         # args[1] is of type gh_field
-        # pylint: disable=protected-access
         call._reduction_arg = call.arguments.args[1]
         with pytest.raises(GenerationError) as err:
             call.reduction_sum_loop(None)
@@ -1106,7 +1102,7 @@ def test_invalid_reprod_pad_size(monkeypatch, dist_mem):
     otrans = Dynamo0p3OMPLoopTrans()
     rtrans = OMPParallelTrans()
     # Apply an OpenMP do directive to the loop
-    schedule, _ = otrans.apply(schedule.children[0], reprod=True)
+    schedule, _ = otrans.apply(schedule.children[0], {"reprod": True})
     # Apply an OpenMP Parallel directive around the OpenMP do directive
     schedule, _ = rtrans.apply(schedule.children[0])
     invoke.schedule = schedule
@@ -1893,7 +1889,7 @@ def test_directive_get_private(monkeypatch):
     otrans = Dynamo0p3OMPLoopTrans()
     rtrans = OMPParallelTrans()
     # Apply an OpenMP do directive to the loop
-    schedule, _ = otrans.apply(schedule.children[0], reprod=True)
+    schedule, _ = otrans.apply(schedule.children[0], {"reprod": True})
     # Apply an OpenMP Parallel directive around the OpenMP do directive
     schedule, _ = rtrans.apply(schedule.children[0])
     directive = schedule.children[0]
@@ -2159,7 +2155,7 @@ def test_acckernelsdirective_gencode(default_present):
     sched = psy.invokes.get('invoke_0_testkern_type').schedule
 
     trans = ACCKernelsTrans()
-    _, _ = trans.apply(sched, default_present=default_present)
+    _, _ = trans.apply(sched, {"default_present": default_present})
 
     code = str(psy.gen)
     string = ""
@@ -2190,7 +2186,7 @@ def test_acckernelsdirective_update(parser, default_present):
     schedule = psy.invokes.invoke_list[0].schedule
     kernels_trans = ACCKernelsTrans()
     schedule, _ = kernels_trans.apply(schedule.children[0:1],
-                                      default_present=default_present)
+                                      {"default_present": default_present})
     gen_code = str(psy.gen)
     string = ""
     if default_present:
@@ -2234,9 +2230,9 @@ def test_accenterdatadirective_gencode_1():
     _, info = parse(os.path.join(BASE_PATH, "1_single_invoke.f90"))
     psy = PSyFactory(distributed_memory=False).create(info)
     sched = psy.invokes.get('invoke_0_testkern_type').schedule
-    _ = acc_enter_trans.apply(sched)
+    acc_enter_trans.apply(sched)
     with pytest.raises(GenerationError) as excinfo:
-        _ = str(psy.gen)
+        str(psy.gen)
     assert ("ACCEnterData directive did not find any data to copyin. Perhaps "
             "there are no ACCParallel directives within the region."
             in str(excinfo.value))
@@ -2254,9 +2250,9 @@ def test_accenterdatadirective_gencode_2():
     _, info = parse(os.path.join(BASE_PATH, "1.2_multi_invoke.f90"))
     psy = PSyFactory(distributed_memory=False).create(info)
     sched = psy.invokes.get('invoke_0').schedule
-    _ = acc_enter_trans.apply(sched)
+    acc_enter_trans.apply(sched)
     with pytest.raises(GenerationError) as excinfo:
-        _ = str(psy.gen)
+        str(psy.gen)
     assert ("ACCEnterData directive did not find any data to copyin. Perhaps "
             "there are no ACCParallel directives within the region."
             in str(excinfo.value))
@@ -2644,7 +2640,7 @@ def test_find_w_args_multiple_deps_error(monkeypatch, annexed):
     else:
         index = 4
     rc_trans = Dynamo0p3RedundantComputationTrans()
-    rc_trans.apply(schedule.children[index], depth=2)
+    rc_trans.apply(schedule.children[index], {"depth": 2})
     del schedule.children[index]
     loop = schedule.children[index+2]
     kernel = loop.loop_body[0]
@@ -2718,7 +2714,7 @@ def test_find_w_args_multiple_deps(monkeypatch, annexed):
     else:
         index = 4
     rc_trans = Dynamo0p3RedundantComputationTrans()
-    rc_trans.apply(schedule.children[index], depth=2)
+    rc_trans.apply(schedule.children[index], {"depth": 2})
     loop = schedule.children[index+3]
     kernel = loop.loop_body[0]
     d_field = kernel.arguments.args[0]
@@ -2907,6 +2903,7 @@ def test_codeblock_structure(structure):
 def test_loop_navigation_properties():
     ''' Tests the start_expr, stop_expr, step_expr and loop_body
     setter and getter properties'''
+    # pylint: disable=too-many-statements
     from psyclone.psyGen import Loop
     loop = Loop()
 
@@ -3545,7 +3542,7 @@ def test_kernelschedule_name_setter():
 def test_symbol_initialisation():
     '''Test that a Symbol instance can be created when valid arguments are
     given, otherwise raise relevant exceptions.'''
-
+    # pylint: disable=too-many-statements
     # Test with valid arguments
     assert isinstance(Symbol('a', 'real'), Symbol)
     # real constants are not currently supported
@@ -4213,7 +4210,7 @@ def test_modified_kern_line_length(kernel_outputdir, monkeypatch):
     # #520.
     monkeypatch.setattr(kernels[0], "_module_name", "testkern_mod")
     ktrans = Dynamo0p3KernelConstTrans()
-    _, _ = ktrans.apply(kernels[0], number_of_layers=100)
+    _, _ = ktrans.apply(kernels[0], {"number_of_layers": 100})
     # Generate the code (this triggers the generation of new kernels)
     _ = str(psy.gen)
     filepath = os.path.join(str(kernel_outputdir), "testkern_0_mod.f90")

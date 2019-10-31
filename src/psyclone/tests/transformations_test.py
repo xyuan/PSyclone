@@ -74,12 +74,12 @@ def test_accenterdata():
 
 def test_accenterdata_internalerr(monkeypatch):
     ''' Check that the ACCEnterDataTrans.apply() method raises an internal
-    error if the _validate method fails to throw out an invalid type of
+    error if the validate method fails to throw out an invalid type of
     Schedule. '''
     from psyclone.transformations import ACCEnterDataTrans
     from psyclone.psyGen import InternalError
     acct = ACCEnterDataTrans()
-    monkeypatch.setattr(acct, "_validate", lambda sched: None)
+    monkeypatch.setattr(acct, "validate", lambda sched, options: None)
     with pytest.raises(InternalError) as err:
         _, _ = acct.apply("Not a schedule")
     assert "validate() has not rejected an (unsupported) schedule" in str(err)
@@ -121,13 +121,13 @@ def test_ifblock_children_region():
     # is an error because the first child is the conditional part of the
     # IfBlock.
     with pytest.raises(TransformationError) as err:
-        super(ACCParallelTrans, acct)._validate(ifblock.children)
-    assert ("transformation to the immediate children of an IfBlock" in
-            str(err))
+        super(ACCParallelTrans, acct).validate(ifblock.children)
+    assert ("transformation to the immediate children of an IfBlock unless it "
+            "is to a single Schedule" in str(err.value))
     with pytest.raises(TransformationError) as err:
-        super(ACCParallelTrans, acct)._validate(ifblock.children[1:])
-    assert ("transformation to the immediate children of an IfBlock "
-            in str(err))
+        super(ACCParallelTrans, acct).validate(ifblock.children[1:])
+    assert ("transformation to the immediate children of an IfBlock unless it "
+            "is to a single Schedule" in str(err.value))
 
 
 def test_fusetrans_error_incomplete():
@@ -217,6 +217,6 @@ def test_regiontrans_wrong_children():
     parent.addchild(Literal("1", parent))
     parent.addchild(Schedule(parent=parent))
     with pytest.raises(TransformationError) as err:
-        RegionTrans._validate(rtrans, parent.children)
+        RegionTrans.validate(rtrans, parent.children)
     assert ("Cannot apply transformation to the immediate children of a "
             "Loop unless" in str(err.value))
