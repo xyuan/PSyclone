@@ -597,6 +597,7 @@ def try_kernels_trans(nodes):
 
     '''
     from psyclone.psyGen import InternalError, Loop, IfBlock
+    from psyclone.nemo import NemoImplicitLoop
 
     # We only enclose the proposed region if it contains a loop.
     for node in nodes:
@@ -622,12 +623,21 @@ def try_kernels_trans(nodes):
             ACC_KERN_TRANS.apply(nodes, {"default_present": False})
 
         # Force the compiler to parallelise the loops within this kernels
-        # region if required.
-        if excluding.force_parallel:
-            for node in nodes:
-                loops = node.walk(Loop)
-                if loops:
-                    ACC_LOOP_TRANS.apply(loops[0], {"independent": True})
+        # region if required. We also put COLLAPSE on any tightly-nested
+        # loops over latitude and longitude.
+        for node in nodes:
+            loop_options = {}
+            if excluding.force_parallel:
+                loop_options["independent"] = True
+            loops = node.walk(Loop)
+            if loops:
+                if len(loops) > 1:
+                    if loops[0].loop_type == "lat" and \
+                       loops[1].loop_type == "lon":
+                        if loops[1] is loops[0].loop_body[0]:
+                            loop_options["collapse"] = 2
+                if loop_options and not isinstance(loops[0], NemoImplicitLoop):
+                    ACC_LOOP_TRANS.apply(loops[0], loop_options)
 
         return True
     except (TransformationError, InternalError) as err:
