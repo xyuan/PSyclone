@@ -1,7 +1,7 @@
 ! -----------------------------------------------------------------------------
 ! BSD 3-Clause License
 !
-! Copyright (c) 2019, Science and Technology Facilities Council
+! Copyright (c) 2019-2020, Science and Technology Facilities Council
 ! All rights reserved.
 !
 ! Redistribution and use in source and binary forms, with or without
@@ -30,6 +30,7 @@
 ! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ! -----------------------------------------------------------------------------
 ! Author: S. Siso, STFC Daresbury Lab
+! Modifications: A. R. Porter, STFC Daresbury Lab
 
 module kernel_with_use2_mod
   use argument_mod
@@ -39,9 +40,6 @@ module kernel_with_use2_mod
   implicit none
 
   private
-
-  public bc_ssh
-  public bc_ssh_code
 
   !=======================================
 

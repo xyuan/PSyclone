@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # BSD 3-Clause License
 #
-# Copyright (c) 2017-2019, Science and Technology Facilities Council.
+# Copyright (c) 2017-2020, Science and Technology Facilities Council.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,9 +31,9 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 # ----------------------------------------------------------------------------
-# Author: S. Siso, STFC Daresbury Lab
+# Authors: S. Siso and A. R. Porter, STFC Daresbury Lab
 
-'''Tests the GlobalsToArgumentsTransformation for the  GOcean 1.0 API.'''
+'''Tests the GlobalsToArgumentsTransformation for the GOcean 1.0 API.'''
 
 from __future__ import absolute_import, print_function
 import os
@@ -41,6 +41,8 @@ import pytest
 from psyclone.parse.algorithm import parse
 from psyclone.psyGen import PSyFactory
 from psyclone.psyir.symbols import DataType
+from psyclone.tests.gocean1p0_build import GOcean1p0Build
+from psyclone.configuration import Config
 
 API = "gocean1.0"
 
@@ -68,7 +70,7 @@ def test_globalstoargumentstrans_wrongapi():
            "type:" in str(err.value)
 
 
-def test_globalstoargumentstrans(monkeypatch):
+def test_globalstoargumentstrans(monkeypatch, kernel_outputdir):
     ''' Check the GlobalsToArguments transformation with a single kernel
     invoke and a global variable.'''
     from psyclone.transformations import KernelGlobalsToArguments, \
@@ -141,12 +143,16 @@ def test_globalstoargumentstrans(monkeypatch):
     # and argument call
     generated_code = str(psy.gen)
     assert "USE model_mod, ONLY: rdt" in generated_code
-    assert "CALL kernel_with_use_code(i, j, oldu_fld, cu_fld%data, " \
+    assert "CALL kernel_with_use_0_code(i, j, oldu_fld, cu_fld%data, " \
            "cu_fld%grid%tmask, rdt)" in generated_code
     assert "model_mod" in invoke._name_space_manager._reserved_names
     assert "rdt" in invoke._name_space_manager._added_names
 
+    assert GOcean1p0Build(kernel_outputdir).code_compiles(
+        psy, [os.path.join(BASEPATH, "gocean1p0", "model_mod.f90")])
 
+
+@pytest.mark.usefixtures("kernel_outputdir")
 def test_globalstoargumentstrans_constant(monkeypatch):
     ''' Check the GlobalsToArguments transformation when the global is
     also a constant value, in this case the argument should be read-only.'''
@@ -182,12 +188,16 @@ def test_globalstoargumentstrans_constant(monkeypatch):
     assert "integer, intent(in) :: rdt" in kernel_code
 
 
-def test_globalstoarguments_multiple_kernels():
+def test_globalstoarguments_multiple_kernels(kernel_outputdir):
     ''' Check the KernelGlobalsToArguments transformation with an invoke with
     three kernel calls, two of them duplicated and the third one sharing the
     same imported module'''
     from psyclone.transformations import KernelGlobalsToArguments
     from psyclone.psyir.backend.fortran import FortranWriter
+
+    # We only want a single version of each transformed kernel
+    Config.get().kernel_naming = "single"
+
     fwriter = FortranWriter()
 
     # Construct a testing InvokeSchedule
@@ -217,30 +227,39 @@ def test_globalstoarguments_multiple_kernels():
 
         trans.apply(kernel)
 
-        # Check the kernel code is generated as expected
+        # Check the kernel code is generated as expected. Note that at this
+        # stage the transformed kernels are not re-named as they haven't
+        # been written to file.
         kernel_code = fwriter(kschedule)
         assert expected[num][0] in kernel_code
         assert expected[num][1] in kernel_code
 
+    # Create the output code. This causes the transformed kernels to be
+    # re-named.
     generated_code = str(psy.gen)
+
+    assert GOcean1p0Build(kernel_outputdir).code_compiles(
+        psy, [os.path.join(BASEPATH, "gocean1p0", "model_mod.f90")])
 
     # The following assert checks that globals from the same module are
     # imported in a single use statement and that duplicated globals are
     # just imported once
     assert "SUBROUTINE invoke_0(oldu_fld, cu_fld)\n" \
-           "      USE kernel_with_use2_mod, ONLY: kernel_with_use2_code\n" \
-           "      USE kernel_with_use_mod, ONLY: kernel_with_use_code\n" \
+           "      USE kernel_with_use2_0_mod, ONLY: kernel_with_use2_0_code\n" \
+           "      USE kernel_with_use_0_mod, ONLY: kernel_with_use_0_code\n" \
            "      USE model_mod, ONLY: rdt, cbfr\n" \
            "      TYPE(r2d_field), intent(inout) :: cu_fld\n" in generated_code
 
     # Check the kernel calls have the global passed as last argument
-    assert "CALL kernel_with_use_code(i, j, oldu_fld, cu_fld%data, " \
+    assert "CALL kernel_with_use_0_code(i, j, oldu_fld, cu_fld%data, " \
            "cu_fld%grid%tmask, rdt)" in generated_code
-    assert "CALL kernel_with_use2_code(i, j, oldu_fld, cu_fld%data, " \
+    assert "CALL kernel_with_use2_0_code(i, j, oldu_fld, cu_fld%data, " \
            "cu_fld%grid%tmask, cbfr, rdt)" in generated_code
 
+    Config._instance = None
 
-def test_globalstoarguments_noglobals():
+
+def test_globalstoarguments_noglobals(kernel_outputdir):
     ''' Check the KernelGlobalsToArguments transformation can be applied to
     a kernel that does not contain any global without any effect '''
     from psyclone.transformations import KernelGlobalsToArguments
@@ -259,6 +278,7 @@ def test_globalstoarguments_noglobals():
     assert before_code == after_code
     # TODO #11: When support for logging is added, we could warn the user that
     # no globals were found.
+    assert GOcean1p0Build(kernel_outputdir).code_compiles(psy)
 
 
 def test_globalstoargumentstrans_clash_symboltable(monkeypatch):
@@ -293,6 +313,7 @@ def test_globalstoargumentstrans_clash_symboltable(monkeypatch):
         " by another symbol." in str(err.value)
 
 
+@pytest.mark.usefixtures("kernel_outputdir")
 def test_globalstoargumentstrans_clash_namespace_after(monkeypatch):
     ''' Check the GlobalsToArguments transformation adds the module and global
     variable names into the NameSpaceManager to prevent clashes'''
@@ -329,6 +350,7 @@ def test_globalstoargumentstrans_clash_namespace_after(monkeypatch):
     assert newname2 == "model_mod_1"
 
 
+@pytest.mark.usefixtures("kernel_outputdir")
 def test_globalstoargumentstrans_clash_namespace_before(monkeypatch):
     ''' Check the GlobalsToArguments generation will break if the global
     variable name has already been used in the NameSpaceManager'''

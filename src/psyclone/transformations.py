@@ -3888,3 +3888,6 @@ class KernelGlobalsToArguments(Transformation):
 
             # Add the global variable in the call argument list
             node.arguments.append(globalvar.name)
+
+            # Mark the kernel as having been transformed
+            node.modified =True
