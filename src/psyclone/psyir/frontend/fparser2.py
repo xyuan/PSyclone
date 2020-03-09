@@ -467,8 +467,7 @@ class Fparser2Reader(object):
 
         return new_schedule
 
-    @staticmethod
-    def _parse_dimensions(dimensions, symbol_table):
+    def _parse_dimensions(self, dimensions, symbol_table):
         '''
         Parse the fparser dimension attribute into a shape list with
         the extent of each dimension.
@@ -486,7 +485,9 @@ class Fparser2Reader(object):
                   represents a scalar.
         :rtype: list
         '''
+        from psyclone.psyir.nodes import Range
         shape = []
+        fake_parent = Node()
 
         # Traverse shape specs in Depth-first-search order
         for dim in walk(dimensions, (Fortran2003.Assumed_Shape_Spec,
@@ -502,32 +503,49 @@ class Fparser2Reader(object):
                         "Could not process {0}. Only scalar integer literals"
                         " or symbols are supported for explicit shape array "
                         "declarations.".format(dimensions))
-                if isinstance(dim.items[1],
-                              Fortran2003.Int_Literal_Constant):
-                    shape.append(int(dim.items[1].items[0]))
-                elif isinstance(dim.items[1], Fortran2003.Name):
-                    # Fortran does not regulate the order in which variables
-                    # may be declared so it's possible for the shape
-                    # specification of an array to reference variables that
-                    # come later in the list of declarations. The reference
-                    # may also be to a symbol present in a parent symbol table
-                    # (e.g. if the variable is declared in an outer, module
-                    # scope).
-                    dim_name = dim.items[1].string.lower()
-                    try:
-                        sym = symbol_table.lookup(dim_name)
-                        if sym.datatype != DataType.INTEGER or sym.shape:
-                            _unsupported_type_error(dimensions)
-                    except KeyError:
-                        # We haven't seen this symbol before so create a new
-                        # one with a deferred interface (since we don't
-                        # currently know where it is declared).
-                        sym = DataSymbol(dim_name, DataType.INTEGER,
-                                         interface=UnresolvedInterface())
-                        symbol_table.add(sym)
-                    shape.append(sym)
+
+                if dim.children[0]:
+                    # We have a specified lower bound
+                    # TODO how do we deal with expressions containing Symbols
+                    # that we haven't yet found a declaration for?
+                    self.process_nodes(fake_parent, [dim.children[0]])
+
                 else:
-                    _unsupported_type_error(dimensions)
+                    # No explicit lower bound so defaults to 1
+                    # TODO do we need to specify a parent here?
+                    fake_parent.children.append(Literal("1", DataType.INTEGER,
+                                                        parent=fake_parent))
+
+                self.process_nodes(fake_parent, [dim.children[1]])
+                shape.append(Range.create(fake_parent.children[0],
+                                          fake_parent.children[1]))
+
+                #if isinstance(dim.items[1],
+                #              Fortran2003.Int_Literal_Constant):
+                #    shape.append(int(dim.items[1].items[0]))
+                #elif isinstance(dim.items[1], Fortran2003.Name):
+                #    # Fortran does not regulate the order in which variables
+                #    # may be declared so it's possible for the shape
+                #    # specification of an array to reference variables that
+                #    # come later in the list of declarations. The reference
+                #    # may also be to a symbol present in a parent symbol table
+                #    # (e.g. if the variable is declared in an outer, module
+                #    # scope).
+                #    dim_name = dim.items[1].string.lower()
+                #    try:
+                #        sym = symbol_table.lookup(dim_name)
+                #        if sym.datatype != DataType.INTEGER or sym.shape:
+                #            _unsupported_type_error(dimensions)
+                #    except KeyError:
+                #        # We haven't seen this symbol before so create a new
+                #        # one with a deferred interface (since we don't
+                #        # currently know where it is declared).
+                #        sym = DataSymbol(dim_name, DataType.INTEGER,
+                #                         interface=UnresolvedInterface())
+                #        symbol_table.add(sym)
+                #    shape.append(sym)
+                #else:
+                #    _unsupported_type_error(dimensions)
 
             elif isinstance(dim, Fortran2003.Assumed_Size_Spec):
                 raise NotImplementedError(
