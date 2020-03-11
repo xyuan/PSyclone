@@ -40,7 +40,7 @@
 
 from __future__ import absolute_import
 import pytest
-from psyclone.psyir.nodes import Range
+from psyclone.psyir.nodes import Range, Literal, Reference
 from psyclone.psyir.symbols import DataSymbol
 from psyclone.tests.psyir.frontend.fparser2_test import process_declarations
 
@@ -54,7 +54,12 @@ def test_array_range():
     array = sched.symbol_table.lookup("a")
     assert isinstance(array, DataSymbol)
     assert isinstance(array.shape[0], Range)
-    assert 0
+    assert isinstance(array.shape[0].start, Literal)
+    assert array.shape[0].start.value == "0"
+    assert isinstance(array.shape[0].stop, Reference)
+    assert array.shape[0].stop.symbol.name == "n"
+    bound = sched.symbol_table.lookup("n")
+    assert isinstance(bound, DataSymbol)
 
 
 def test_array_extent_expression():

@@ -106,6 +106,7 @@ class DataSymbol(Symbol):
 
     def __init__(self, name, datatype, shape=None, constant_value=None,
                  interface=None, precision=None):
+        from psyclone.psyir.nodes import Range
 
         super(DataSymbol, self).__init__(name)
 
@@ -151,7 +152,7 @@ class DataSymbol(Symbol):
                         "DataSymbols that are part of another symbol shape can"
                         " only be scalar integers, but found '{0}'."
                         "".format(str(dimension)))
-            elif not isinstance(dimension, (self.Extent, int)):
+            elif not isinstance(dimension, (Range, self.Extent)):
                 raise TypeError(
                     "DataSymbol shape list elements can only be "
                     "'DataSymbol', 'integer' or DataSymbol.Extent.")
@@ -414,13 +415,12 @@ class DataSymbol(Symbol):
             self._constant_value = None
 
     def __str__(self):
+        from psyclone.psyir.nodes import Range
         ret = self.name + ": <" + str(self.datatype) + ", "
         if self.is_array:
             ret += "Array["
             for dimension in self.shape:
-                if isinstance(dimension, DataSymbol):
-                    ret += dimension.name
-                elif isinstance(dimension, int):
+                if isinstance(dimension, Range):
                     ret += str(dimension)
                 elif isinstance(dimension, DataSymbol.Extent):
                     ret += "'{0}'".format(dimension.name)

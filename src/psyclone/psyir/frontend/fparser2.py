@@ -487,7 +487,7 @@ class Fparser2Reader(object):
         '''
         from psyclone.psyir.nodes import Range
         shape = []
-        fake_parent = Node()
+        fake_parent = KernelSchedule("tmp")
 
         # Traverse shape specs in Depth-first-search order
         for dim in walk(dimensions, (Fortran2003.Assumed_Shape_Spec,
