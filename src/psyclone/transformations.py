@@ -3468,8 +3468,8 @@ class ACCKernelsTrans(RegionTrans):
         from psyclone.dynamo0p3 import DynInvokeSchedule
         from psyclone.psyir.nodes import Loop
         # Check that the front-end is valid
-        sched = node_list[0].root
-        if not isinstance(sched, (NemoInvokeSchedule, DynInvokeSchedule)):
+        sched = node_list[0].ancestor((NemoInvokeSchedule, DynInvokeSchedule))
+        if not sched:
             raise NotImplementedError(
                 "OpenACC kernels regions are currently only supported for the "
                 "nemo and dynamo0.3 front-ends")
