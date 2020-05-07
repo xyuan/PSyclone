@@ -1077,13 +1077,15 @@ class Fparser2Reader(object):
                 raise NotImplementedError("Found unsupported USE statement: "
                                           "'{0}'".format(str(decl)))
 
-    def _process_decln(self, parent, decl):
+    def _process_decln(self, parent, decl, explicit_private_symbols,
+                       explicit_public_symbols, default_public):
         '''
         '''
         (type_spec, attr_specs, entities) = decl.items
 
         # Parse type_spec, currently just 'real', 'integer', 'logical' and
         # 'character' intrinsic types are supported.
+        precision = None
         if isinstance(type_spec, Fortran2003.Intrinsic_Type_Spec):
             fort_type = str(type_spec.items[0]).lower()
             try:
@@ -1096,6 +1098,10 @@ class Fparser2Reader(object):
             # Check for a KIND specification
             precision = self._process_kind_selector(
                 type_spec, parent)
+        else:
+            # Not an intrinsic type so not yet supported. Will result in
+            # one or more Symbols of deferred type.
+            raise NotImplementedError()
 
         # Parse declaration attributes:
         # 1) If no dimension attribute is provided, it defaults to scalar.
@@ -1107,6 +1113,8 @@ class Fparser2Reader(object):
         # 3) Record initialized constant values
         has_constant_value = False
         allocatable = False
+        # This var only set if the declaration has an explicit access-spec
+        decl_is_public = None
         if attr_specs:
             for attr in attr_specs.items:
                 if isinstance(attr, Fortran2003.Attr_Spec):
@@ -1159,6 +1167,16 @@ class Fparser2Reader(object):
                 elif isinstance(attr, Fortran2003.Dimension_Attr_Spec):
                     attribute_shape = \
                         self._parse_dimensions(attr, parent.symbol_table)
+                elif isinstance(attr, Fortran2003.Access_Spec):
+                    if attr.string.lower() == 'public':
+                        decl_is_public = True
+                    elif attr.string.lower() == 'private':
+                        decl_is_public = False
+                    else:
+                        raise InternalError(
+                            "Could not process '{0}'. Unexpected Access "
+                            "Spec attribute '{1}'.".format(decl.items,
+                                                           str(attr)))
                 else:
                     raise NotImplementedError(
                         "Could not process {0}. Unrecognized attribute "
@@ -1209,7 +1227,11 @@ class Fparser2Reader(object):
                     # If it is a parameter parse its initialization
                     tmp = Node()
                     expr = initialisation.items[1]
-                    self.process_nodes(parent=tmp, nodes=[expr])
+                    try:
+                        self.process_nodes(parent=tmp, nodes=[expr])
+                    except:
+                        # Failed to handle the initialisation expression
+                        raise NotImplementedError()
                     ct_expr = tmp.children[0]
                 else:
                     raise NotImplementedError(
@@ -1225,6 +1247,17 @@ class Fparser2Reader(object):
 
             sym_name = str(name).lower()
 
+            if decl_is_public is None:
+                # There was no access-spec on the LHS of the decln
+                if sym_name in explicit_private_symbols:
+                    public = False
+                elif sym_name in explicit_public_symbols:
+                    public = True
+                else:
+                    public = default_public
+            else:
+                public = decl_is_public
+
             if entity_shape:
                 # array
                 datatype = ArrayType(ScalarType(data_name, precision),
@@ -1234,9 +1267,13 @@ class Fparser2Reader(object):
                 datatype = ScalarType(data_name, precision)
 
             if sym_name not in parent.symbol_table:
-                parent.symbol_table.add(DataSymbol(sym_name, datatype,
-                                                   constant_value=ct_expr,
-                                                   interface=interface))
+                try:
+                    parent.symbol_table.add(DataSymbol(sym_name, datatype,
+                                                       public=public,
+                                                       constant_value=ct_expr,
+                                                       interface=interface))
+                except:
+                    raise NotImplementedError()
             else:
                 # The symbol table already contains an entry with this name
                 # so update its interface information.
@@ -1281,14 +1318,17 @@ class Fparser2Reader(object):
         # Variable declarations
         for decl in walk(nodes, Fortran2003.Type_Declaration_Stmt):
             try:
-                self._process_decln(parent, decl)
+                self._process_decln(parent, decl, explicit_private_symbols,
+                                    explicit_public_symbols, default_public)
             except NotImplementedError:
                 # Found an unsupported variable declaration. Create a
                 # DataSymbol with deferred type for each entity being declared.
                 for entity in decl.children[2].children:
-                    # TODO need to store original Fortran declaration
-                    parent.symbol_table.add(DataSymbol(str(entity.children[0]),
-                                                       DeferredType()))
+                    var_name = str(entity.children[0])
+                    if var_name not in parent.symbol_table:
+                        # TODO need to store original Fortran declaration
+                        parent.symbol_table.add(DataSymbol(var_name,
+                                                           DeferredType()))
 
         # Check for symbols named in an access statement but not explicitly
         # declared. These must then refer to symbols that have been brought

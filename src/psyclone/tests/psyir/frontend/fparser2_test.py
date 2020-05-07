@@ -716,14 +716,6 @@ def test_process_declarations(f2008_parser):
     assert isinstance(newsymbol, DataSymbol)
     assert isinstance(newsymbol.datatype, DeferredType)
 
-    # Test with unsupported attribute
-    reader = FortranStringReader("real, public :: p2")
-    fparser2spec = Specification_Part(reader).content[0]
-    processor.process_declarations(fake_parent, [fparser2spec], [])
-    newsymbol = fake_parent.symbol_table.lookup("p2")
-    assert isinstance(newsymbol, DataSymbol)
-    assert isinstance(newsymbol.datatype, DeferredType)
-
     # Char lengths are not supported
     # TODO: It would be simpler to do just a Specification_Part(reader) instead
     # of parsing a full program, but fparser/169 needs to be fixed first.
