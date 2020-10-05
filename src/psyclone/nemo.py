@@ -45,10 +45,9 @@ from __future__ import print_function, absolute_import
 from fparser.two.utils import walk, get_child
 from fparser.two import Fortran2003
 from psyclone.configuration import Config
-from psyclone.psyGen import PSy, Invokes, Invoke, InvokeSchedule, \
-    InlinedKern
+from psyclone.psyGen import PSy, Invokes, Invoke, InlinedKern
 from psyclone.errors import InternalError
-from psyclone.psyir.nodes import Loop, Schedule
+from psyclone.psyir.nodes import Loop, Schedule, InvokeSchedule
 from psyclone.psyir.frontend.fparser2 import Fparser2Reader
 
 

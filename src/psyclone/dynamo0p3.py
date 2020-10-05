@@ -58,9 +58,9 @@ from psyclone.dynamo0p3_builtins import BUILTIN_ITERATION_SPACES
 from psyclone.domain.lfric import (FunctionSpace, KernCallAccArgList,
                                    KernCallArgList, KernStubArgList,
                                    LFRicArgDescriptor)
-from psyclone.psyir.nodes import Loop, Literal, Schedule
+from psyclone.psyir.nodes import Loop, Literal, Schedule, InvokeSchedule
 from psyclone.errors import GenerationError, InternalError, FieldNotFoundError
-from psyclone.psyGen import (PSy, Invokes, Invoke, InvokeSchedule,
+from psyclone.psyGen import (PSy, Invokes, Invoke,
                              Arguments, KernelArgument, HaloExchange,
                              GlobalSum, FORTRAN_INTENT_NAMES, DataAccess,
                              CodedKern, ACCEnterDataDirective)
