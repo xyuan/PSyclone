@@ -60,6 +60,7 @@ from psyclone.psyir.nodes.routine import Routine
 from psyclone.psyir.nodes.datanode import DataNode
 from psyclone.psyir.nodes.statement import Statement
 from psyclone.psyir.nodes.call import Call
+from psyclone.psyir.nodes.invoke_schedule import InvokeSchedule
 
 # The entities in the __all__ list are made available to import directly from
 # this package e.g. 'from psyclone.psyir.nodes import Literal'
@@ -75,6 +76,7 @@ __all__ = [
         'DataNode',
         'ExtractNode',
         'IfBlock',
+        'InvokeSchedule',
         'KernelSchedule',
         'Literal',
         'Loop',

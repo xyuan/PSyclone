@@ -321,52 +321,6 @@ end module dummy_mod
 '''
 
 
-# InvokeSchedule class tests
-
-def test_invokeschedule_node_str():
-    ''' Check the node_str method of the InvokeSchedule class. We need an
-    Invoke object for this which we get using the dynamo0.3 API. '''
-    from psyclone.psyGen import InvokeSchedule
-    from psyclone.psyir.nodes.node import colored, SCHEDULE_COLOUR_MAP
-    _, invoke_info = parse(os.path.join(BASE_PATH,
-                                        "15.9.1_X_innerproduct_Y_builtin.f90"),
-                           api="dynamo0.3")
-    psy = PSyFactory("dynamo0.3", distributed_memory=True).create(invoke_info)
-    # Create a plain InvokeSchedule
-    sched = InvokeSchedule(None, None)
-    # Manually supply it with an Invoke object created with the Dynamo API.
-    sched._invoke = psy.invokes.invoke_list[0]
-    output = sched.node_str()
-    assert colored("InvokeSchedule", SCHEDULE_COLOUR_MAP["Schedule"]) in output
-
-
-def test_sched_ocl_setter():
-    ''' Check that the opencl setter raises the expected error if not passed
-    a bool. '''
-    _, invoke_info = parse(os.path.join(BASE_PATH,
-                                        "15.9.1_X_innerproduct_Y_builtin.f90"),
-                           api="dynamo0.3")
-    psy = PSyFactory("dynamo0.3", distributed_memory=True).create(invoke_info)
-    with pytest.raises(ValueError) as err:
-        psy.invokes.invoke_list[0].schedule.opencl = "a string"
-    assert "Schedule.opencl must be a bool but got " in str(err.value)
-
-
-def test_invokeschedule_can_be_printed():
-    ''' Check the InvokeSchedule class can always be printed'''
-    from psyclone.psyGen import InvokeSchedule
-    _, invoke_info = parse(os.path.join(BASE_PATH,
-                                        "15.9.1_X_innerproduct_Y_builtin.f90"),
-                           api="dynamo0.3")
-    psy = PSyFactory("dynamo0.3", distributed_memory=True).create(invoke_info)
-
-    # For this test use the generic class
-    psy.invokes.invoke_list[0].schedule.__class__ = InvokeSchedule
-    output = str(psy.invokes.invoke_list[0].schedule)
-
-    assert "InvokeSchedule:\n" in output
-
-
 # Kern class test
 
 def test_kern_get_kernel_schedule():

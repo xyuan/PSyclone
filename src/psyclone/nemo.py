@@ -57,15 +57,16 @@ class NemoFparser2Reader(Fparser2Reader):
     Specialisation of Fparser2Reader for the Nemo API.
     '''
     @staticmethod
-    def _create_schedule(_):
+    def _create_schedule(name):
         '''
-        Create an empty InvokeSchedule. The un-named argument would be 'name'
-        but this isn't used in the NEMO API.
+        Create an empty InvokeSchedule.
+
+        :param str name: the name of the InvokeSchedule.
 
         :returns: New InvokeSchedule empty object.
         :rtype: py:class:`psyclone.nemo.NemoInvokeSchedule`
         '''
-        return NemoInvokeSchedule()
+        return NemoInvokeSchedule(name)
 
     def _create_loop(self, parent, variable):
         '''
@@ -294,14 +295,15 @@ class NemoInvokeSchedule(InvokeSchedule):
     The NEMO-specific InvokeSchedule sub-class. This is the top-level node in
     PSyclone's IR of a NEMO program unit (program, subroutine etc).
 
+    :param str name: the name of this InvokeSchedule.
     :param invoke: the Invoke to which this NemoInvokeSchedule belongs.
     :type invoke: :py:class:`psyclone.nemo.NemoInvoke`
 
     '''
     _text_name = "NemoInvokeSchedule"
 
-    def __init__(self, invoke=None):
-        super(NemoInvokeSchedule, self).__init__(None, None)
+    def __init__(self, name, invoke=None):
+        super(NemoInvokeSchedule, self).__init__(name, None, None)
 
         self._invoke = invoke
         # Whether or not we've already checked the associated Fortran for
